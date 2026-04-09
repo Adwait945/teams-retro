@@ -1,0 +1,10 @@
+{
+  "hooks": {
+    "post_setup_worktree": [
+      {
+        "command": "bash -c \"cp $ROOT_WORKSPACE_PATH/.env* . 2>/dev/null; corepack yarn install\"",
+        "show_output": true
+      }
+    ]
+  }
+}

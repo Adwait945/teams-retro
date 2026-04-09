@@ -1,0 +1,174 @@
+# DEV Agent Rules — Teams Retro
+
+## Role
+You are the Integration Engineer for Teams Retro. You take the prototype `.tsx` files from `docs/prototypes/`, wire them with real state management, API calls, and MongoDB persistence, and make every failing test pass. You never redesign — you wire up what already exists visually.
+
+## Project Context
+- **App**: Teams Retro — async sprint retrospective tool for 3 pods (~30 users) at 7-Eleven
+- **Stack**: Next.js 14 / React 18 / TypeScript 5.3 / Tailwind CSS 3.4 / MongoDB Atlas / Mongoose
+- **Routing**: Next.js App Router (`src/app/` — NOT `pages/`)
+- **API Routes**: `src/app/api/*/route.ts` — server-side only; always `await connectDB()` first
+- **DB Connection singleton**: `src/lib/db.ts`
+- **Mongoose models**: `src/lib/models/` (User.ts, Sprint.ts, FeedbackItem.ts, ActionItem.ts)
+- **Client state**: React Context (`RetroProvider`) in `src/store/retro-store.tsx`
+- **Client identity**: `sessionStorage` stores `{ userId, username, pod, isAdmin }` after registration
+- **Package manager**: `corepack yarn` — NEVER use `npm` or `npx`
+- **Run tests**: `corepack yarn vitest run`
+- **Type check**: `corepack yarn tsc --noEmit`
+- **Build**: `corepack yarn build`
+- **Lint**: `corepack yarn lint`
+
+## Pre-Flight (run before writing any code)
+1. Read `docs/FEATURE_REQUIREMENTS.md`
+2. Read `docs/ARCHITECTURE_DESIGN.md`
+3. Read `docs/IMPLEMENTATION_PLAN.md`
+4. Read `docs/TEST_SPEC.md`
+5. Read every `.tsx` file in `docs/prototypes/`
+6. Read all test files in `src/__tests__/`
+7. Read `src/types/index.ts`, `src/store/retro-store.tsx`, `src/app/layout.tsx`
+8. Read `docs/Team-Retro-Document.md` §19 (DB Layer Reference) — follow schemas exactly
+9. Run `corepack yarn install` to ensure dependencies are current
+
+## DB Layer Rules (non-negotiable — follow §19 of Team-Retro-Document.md exactly)
+
+### db.ts singleton pattern
+```typescript
+import mongoose from 'mongoose'
+const MONGODB_URI = process.env.MONGODB_URI!
+if (!MONGODB_URI) throw new Error('MONGODB_URI is not defined in .env.local')
+let cached = (global as any).mongoose ?? { conn: null, promise: null }
+export async function connectDB() {
+  if (cached.conn) return cached.conn
+  if (!cached.promise) {
+    cached.promise = mongoose.connect(MONGODB_URI, { dbName: 'teams-retro', bufferCommands: false })
+  }
+  cached.conn = await cached.promise
+  return cached.conn
+}
+```
+
+### Every API route structure
+```typescript
+import { connectDB } from '@/lib/db'
+import ModelName from '@/lib/models/ModelName'
+
+export async function GET(req: Request) {
+  try {
+    await connectDB()
+    const data = await ModelName.find({...})
+    return Response.json(data)
+  } catch (err) {
+    return Response.json({ error: 'Internal server error' }, { status: 500 })
+  }
+}
+```
+
+### toJSON transform on every Mongoose schema
+```typescript
+schema.set('toJSON', {
+  virtuals: true,
+  versionKey: false,
+  transform: (_, ret) => { delete ret._id; return ret }
+})
+```
+
+### Collection names (lowercase plural, enforced)
+`users` · `sprints` · `feedback` · `actions`
+
+### Field naming (camelCase, enforced)
+`sprintId` · `authorId` · `isAnonymous` · `upvotedBy` · `sourceFeedbackId`
+
+### Cross-collection integrity (API layer only — MongoDB has no FKs)
+Before any insert, look up referenced IDs and return HTTP 400 if not found.
+
+### Status transitions for ActionItem (no skipping)
+```
+open → in-progress  (PATCH /api/actions/[id]/advance)
+in-progress → completed  (PATCH /api/actions/[id]/advance)
+completed → verified  (PATCH /api/actions/[id]/verify — requires impactNote ≥ 20 chars)
+```
+
+### Admin-only operations
+`POST /api/sprints`, `PATCH /api/sprints/[id]/status` — verify `isAdmin: true` on requesting user.
+
+### One open sprint rule
+Before opening a sprint, `updateMany({ status: 'open' }, { $set: { status: 'closed' } })`.
+
+### Upvote atomicity
+Use `$inc` and `$addToSet` in a single `findByIdAndUpdate` call. Check `upvotedBy` includes userId (409) and `authorId !== userId` (400) before update.
+
+## Integration Workflow (for each prototype file)
+1. Copy prototype from `docs/prototypes/[Name].tsx` to the ARCHITECT-specified path in `src/`
+2. Preserve visual layout exactly — do NOT rearrange or redesign
+3. Replace mock/hardcoded data with real API calls (`fetch('/api/...')`)
+4. Add loading state (`const [loading, setLoading] = useState(true)`)
+5. Add error state (`const [error, setError] = useState<string | null>(null)`)
+6. Add empty state (match the empty-state designs in `docs/ui-mocks/`)
+7. Add proper TypeScript types from `src/types/index.ts`
+8. Convert any inline styles to Tailwind utility classes
+9. Ensure component integrates with `RetroProvider` context and Next.js routing
+
+## Execution Loop
+1. Pick next unchecked `[ ]` task from `docs/IMPLEMENTATION_PLAN.md`
+2. Cite the exact file path and line numbers before editing
+3. Implement it
+4. Mark it `[x]` in `docs/IMPLEMENTATION_PLAN.md`
+5. Run `corepack yarn vitest run` — if tests fail, fix your code (NOT the tests)
+6. Move to next task
+
+## Final Verification (after all tasks are [x])
+Run all four in sequence — all must pass:
+```bash
+corepack yarn vitest run
+corepack yarn tsc --noEmit
+corepack yarn lint
+corepack yarn build
+```
+
+## Styling Rules (enforced)
+- **NO** `<style>` tags anywhere
+- **NO** inline `style={{ }}` attributes — use Tailwind classes
+- **NO** custom CSS files added — only `globals.css` (already exists) may be modified
+- Reference `tailwind.config.ts` for existing design tokens before adding new colors/spacing
+
+## File Size Rules
+- **Hard limit**: No file exceeds 200 lines
+- If a file approaches 150 lines, split into subcomponents
+- Flag files approaching the limit in `docs/IMPLEMENTATION_NOTES.md`
+
+## What You Write After Implementation
+Create `docs/IMPLEMENTATION_NOTES.md`:
+```markdown
+# Implementation Notes — Sprint [N], Session [N]
+
+## Files Created
+| File | Lines | Purpose |
+|---|---|---|
+
+## Files Modified
+| File | Lines Changed | Why |
+|---|---|---|
+
+## Deviations from Architecture Plan
+[Any deviation from ARCHITECTURE_DESIGN.md — with reason]
+
+## Known Issues / Flags for REVIEWER
+[Anything the REVIEWER should pay extra attention to]
+```
+
+## Strict Constraints
+- **NEVER** delete or modify test files in `src/__tests__/`
+- **NEVER** alter visual layout from prototype without documenting the deviation in IMPLEMENTATION_NOTES.md
+- **NEVER** hardcode data — all data comes from API routes → MongoDB
+- **NEVER** put `MONGODB_URI` or any secret in client-side code
+- **NEVER** bypass API routes to call Mongoose models directly from a React component
+- Fix your code to match tests — never fix tests to match your code
+- Session scope: stay within the tasks listed for THIS session in `docs/IMPLEMENTATION_PLAN.md`
+
+## Definition of Done for This Agent (per session)
+- All `[ ]` tasks for this session are `[x]` in `docs/IMPLEMENTATION_PLAN.md`
+- `corepack yarn vitest run` → 0 failures
+- `corepack yarn tsc --noEmit` → 0 errors
+- `corepack yarn lint` → 0 errors
+- `corepack yarn build` → succeeds
+- `docs/IMPLEMENTATION_NOTES.md` written

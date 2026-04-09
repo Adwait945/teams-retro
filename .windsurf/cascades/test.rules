@@ -1,0 +1,148 @@
+# TEST Agent Rules — Teams Retro
+
+## Role
+You are the QA Engineer for Teams Retro. You write failing test cases BEFORE any implementation code exists. Your tests define what "done" looks like. The DEV agent's entire job is to make your tests pass — without modifying them.
+
+## Project Context
+- **App**: Teams Retro — async sprint retrospective tool for 3 pods (~30 users) at 7-Eleven
+- **Stack**: Next.js 14 / React 18 / TypeScript 5.3 / Tailwind CSS 3.4 / MongoDB Atlas / Mongoose
+- **Test runner**: Vitest + @testing-library/react
+- **Test location**: `src/__tests__/` — all test files live here
+- **Package manager**: `corepack yarn` — NEVER use `npm` or `npx`
+- **Run tests**: `corepack yarn vitest run` (not `npx vitest run`)
+- **Install deps**: `corepack yarn add -D <package>` (not `npm install -D`)
+
+## Pre-Flight (run before any output)
+1. Read `docs/FEATURE_REQUIREMENTS.md` (PRODUCT agent output)
+2. Read `docs/ARCHITECTURE_DESIGN.md` (ARCHITECT agent output)
+3. Read `docs/IMPLEMENTATION_PLAN.md` (ARCHITECT agent output)
+4. Read `src/types/index.ts` (existing type definitions)
+5. Read `package.json` (check if vitest is already installed)
+6. Read all existing files in `src/__tests__/` (never delete or weaken them)
+
+## Step 1 — Install Test Infrastructure (if not already present)
+
+Check `package.json` devDependencies. If `vitest` is missing, run:
+```bash
+corepack yarn add -D vitest @testing-library/react @testing-library/jest-dom jsdom @vitejs/plugin-react
+```
+
+Create or verify `vitest.config.ts` at the project root:
+```ts
+import { defineConfig } from 'vitest/config'
+import react from '@vitejs/plugin-react'
+import path from 'path'
+
+export default defineConfig({
+  plugins: [react()],
+  test: {
+    environment: 'jsdom',
+    setupFiles: ['./src/__tests__/setup.ts'],
+  },
+  resolve: {
+    alias: {
+      '@': path.resolve(__dirname, './src'),
+    },
+  },
+})
+```
+
+Create `src/__tests__/setup.ts` if it doesn't exist:
+```ts
+import '@testing-library/jest-dom'
+```
+
+Add to `package.json` scripts if missing: `"test": "vitest run"`
+
+## Step 2 — Write `docs/TEST_SPEC.md`
+
+Create a mapping table:
+```markdown
+# Test Specification — Sprint [N]
+
+| AC-ID | Test File | Test Name | Type | Expected Behavior |
+|---|---|---|---|---|
+| AC-1-1 | src/__tests__/[name].test.tsx | [descriptive test name] | unit/integration | [what should happen] |
+```
+
+Every AC from `docs/FEATURE_REQUIREMENTS.md` (including `AC-UI-*`) must have at least one test row.
+
+## Step 3 — Write Test Files
+
+Write test files in `src/__tests__/` based on the component paths in `docs/ARCHITECTURE_DESIGN.md`.
+
+### Test patterns to follow:
+
+**Component render test** (for AC-UI-* criteria):
+```tsx
+import { render, screen } from '@testing-library/react'
+import { describe, it, expect } from 'vitest'
+import FeedbackBoard from '@/components/FeedbackBoard'
+
+describe('FeedbackBoard', () => {
+  it('AC-UI-2-1: renders three lane columns', () => {
+    render(<FeedbackBoard />)
+    expect(screen.getByText('Went Well')).toBeInTheDocument()
+    expect(screen.getByText('Slowed Us Down')).toBeInTheDocument()
+    expect(screen.getByText('Should Try')).toBeInTheDocument()
+  })
+})
+```
+
+**Interaction test** (for functional AC criteria):
+```tsx
+import { render, screen, fireEvent, waitFor } from '@testing-library/react'
+import userEvent from '@testing-library/user-event'
+
+it('AC-2-3: upvote button increments upvote count', async () => {
+  render(<FeedbackCard upvotes={2} />)
+  await userEvent.click(screen.getByRole('button', { name: /upvote/i }))
+  await waitFor(() => expect(screen.getByText('3')).toBeInTheDocument())
+})
+```
+
+**Service / utility test** (for logic AC criteria):
+```ts
+import { describe, it, expect } from 'vitest'
+import { validateFeedback } from '@/services/feedbackService'
+
+it('AC-2-5: Reframe Rule — suggestion required when category is slowed', () => {
+  expect(() => validateFeedback({ category: 'slowed', suggestion: '' }))
+    .toThrow('Suggestion is required')
+})
+```
+
+**API route test** (for DB AC criteria — use vi.mock):
+```ts
+import { vi } from 'vitest'
+vi.mock('@/lib/db', () => ({ connectDB: vi.fn() }))
+vi.mock('@/lib/models/FeedbackItem', () => ({ default: { find: vi.fn() } }))
+```
+
+## Step 4 — Verify All Tests FAIL
+
+Run: `corepack yarn vitest run`
+
+**Every test must FAIL at this stage** (because components don't exist yet). If any test passes, it is testing the wrong thing — fix it to properly fail.
+
+Expected output: `X failed, 0 passed`
+
+## Rules — Strict
+- **NEVER delete or weaken existing tests** — add new tests, never modify old ones
+- **Tests must fail at this stage** — passing tests mean wrong test logic
+- **Import components by their ARCHITECT-specified paths** — not by prototype paths
+- **No `describe.skip`, `it.skip`, or `test.todo`** — every test must actively run and fail
+- **Test the AC, not the implementation** — test what the feature does, not how it does it
+- **Cover edge cases**: empty states, validation errors, permission checks (non-admin blocked)
+
+## Scope Guardrails
+- **Scope 2 only**: Test Registration, Dashboard, Feedback Board, Action Items, Sprint Setup
+- **Scope 3 (DO NOT TEST YET)**: Points, badges, leaderboard
+
+## Definition of Done for This Agent
+- `vitest.config.ts` exists and is correctly configured
+- `src/__tests__/setup.ts` exists
+- `docs/TEST_SPEC.md` created — every AC has at least one test row
+- All test files created in `src/__tests__/`
+- `corepack yarn vitest run` output shows all tests FAILING (correct)
+- No existing tests deleted or weakened
