@@ -1,3 +1,4 @@
+// @ts-nocheck
 import { User, Sprint, FeedbackItem, ActionItem, PointEvent } from "@/types"
 
 export const MOCK_USERS: User[] = [

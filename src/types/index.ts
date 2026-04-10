@@ -1,11 +1,15 @@
 export type FeedbackCategory = "slowed-us-down" | "should-try" | "went-well"
 
 export interface User {
-  id: string
+  _id: string
   name: string
+  username: string
   avatar: string
+  pod: string
+  isAdmin: boolean
   totalPoints: number
   badges: Badge[]
+  createdAt: string
 }
 
 export interface Badge {
@@ -18,38 +22,42 @@ export interface Badge {
 }
 
 export interface FeedbackItem {
-  id: string
+  _id: string
   category: FeedbackCategory
   content: string
-  suggestedImprovement: string
+  suggestion: string
   authorId: string
   isAnonymous: boolean
   sprintId: string
-  upvotes: string[] // user IDs who upvoted
+  upvotedBy: string[]
+  upvotes: number
   createdAt: string
   actionItemId?: string
 }
 
 export interface ActionItem {
-  id: string
+  _id: string
   title: string
   description: string
   ownerId: string
-  feedbackId: string
+  sourceFeedbackId: string
+  sourceQuote: string
   sprintId: string
   status: "open" | "in-progress" | "completed" | "verified"
-  deadline: string
+  dueDate: string
   createdAt: string
   completedAt?: string
-  impactDescription?: string
+  impactNote?: string
 }
 
 export interface Sprint {
-  id: string
+  _id: string
   name: string
+  goal: string
   startDate: string
   endDate: string
-  isActive: boolean
+  status: "open" | "closed"
+  teamMemberIds: string[]
 }
 
 export interface PointEvent {

@@ -1,212 +1,127 @@
 "use client"
 
-import { useRetro } from "@/store/retro-store"
-import { SprintSelector } from "@/components/sprint-selector"
-import {
-  MessageSquarePlus,
-  ThumbsUp,
-  ListChecks,
-  CheckCircle2,
-  TrendingUp,
-  Zap,
-  ArrowRight,
-  Trophy,
-} from "lucide-react"
-import Link from "next/link"
+import { useState, useEffect } from "react"
+import { useRouter } from "next/navigation"
+import { Hexagon } from "lucide-react"
+import { registerUser, getCurrentUser, cacheUser } from "@/services/userService"
 
-export default function DashboardPage() {
-  const {
-    feedback,
-    actionItems,
-    pointEvents,
-    selectedSprintId,
-    getLeaderboard,
-    users,
-    sprints,
-  } = useRetro()
+export default function RegistrationPage() {
+  const router = useRouter()
+  const [name, setName] = useState("")
+  const [username, setUsername] = useState("")
+  const [pod, setPod] = useState("")
+  const [isLoading, setIsLoading] = useState(false)
+  const [error, setError] = useState<string | null>(null)
 
-  const sprintFeedback = feedback.filter((f) => f.sprintId === selectedSprintId)
-  const sprintActions = actionItems.filter((a) => a.sprintId === selectedSprintId)
-  const completedActions = sprintActions.filter((a) => a.status === "completed" || a.status === "verified")
-  const sprintPoints = pointEvents.filter((p) => p.sprintId === selectedSprintId)
-  const totalSprintPoints = sprintPoints.reduce((sum, p) => sum + p.points, 0)
-  const leaderboard = getLeaderboard(selectedSprintId)
-  const topContributor = leaderboard[0]
+  useEffect(() => {
+    const user = getCurrentUser()
+    if (user) router.push("/dashboard")
+  }, [router])
 
-  const stats = [
-    {
-      label: "Feedback Items",
-      value: sprintFeedback.length,
-      icon: MessageSquarePlus,
-      color: "text-blue-600",
-      bg: "bg-blue-50",
-    },
-    {
-      label: "Total Upvotes",
-      value: sprintFeedback.reduce((sum, f) => sum + f.upvotes.length, 0),
-      icon: ThumbsUp,
-      color: "text-purple-600",
-      bg: "bg-purple-50",
-    },
-    {
-      label: "Action Items",
-      value: sprintActions.length,
-      icon: ListChecks,
-      color: "text-amber-600",
-      bg: "bg-amber-50",
-    },
-    {
-      label: "Completed",
-      value: completedActions.length,
-      icon: CheckCircle2,
-      color: "text-emerald-600",
-      bg: "bg-emerald-50",
-    },
-  ]
+  const isDisabled = !name || !username || !pod || isLoading
 
-  const recentFeedback = [...sprintFeedback]
-    .sort((a, b) => new Date(b.createdAt).getTime() - new Date(a.createdAt).getTime())
-    .slice(0, 5)
-
-  const recentPoints = [...sprintPoints]
-    .sort((a, b) => new Date(b.timestamp).getTime() - new Date(a.timestamp).getTime())
-    .slice(0, 6)
+  async function handleSubmit(e: React.FormEvent) {
+    e.preventDefault()
+    setIsLoading(true)
+    setError(null)
+    try {
+      const user = await registerUser({ name, username, pod })
+      cacheUser(user)
+      router.push("/dashboard")
+    } catch (err) {
+      setError(err instanceof Error ? err.message : "Registration failed")
+      setIsLoading(false)
+    }
+  }
 
   return (
-    <div className="p-6 max-w-7xl mx-auto space-y-6">
-      <div className="flex items-center justify-between">
-        <div>
-          <h1 className="text-2xl font-bold tracking-tight">Dashboard</h1>
-          <p className="text-sm text-muted-foreground mt-1">
-            Overview of your team&apos;s retrospective activity
-          </p>
-        </div>
-        <SprintSelector />
-      </div>
+    <div className="min-h-screen bg-background flex flex-col items-center justify-center p-4">
+      <div className="w-full max-w-[480px] space-y-8 animate-in fade-in slide-in-from-bottom-4 duration-500">
 
-      <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-4">
-        {stats.map((stat) => (
-          <div
-            key={stat.label}
-            className="rounded-xl border border-border bg-card p-5 shadow-sm"
-          >
-            <div className="flex items-center justify-between">
-              <p className="text-sm font-medium text-muted-foreground">{stat.label}</p>
-              <div className={`rounded-lg ${stat.bg} p-2`}>
-                <stat.icon className={`h-4 w-4 ${stat.color}`} />
-              </div>
-            </div>
-            <p className="mt-2 text-3xl font-bold">{stat.value}</p>
+        {/* Logo */}
+        <div className="flex flex-col items-center gap-3">
+          <div className="w-12 h-12 rounded-xl bg-primary/20 flex items-center justify-center shadow-[0_0_15px_rgba(245,158,11,0.1)]">
+            <Hexagon className="w-7 h-7 text-primary fill-primary" />
           </div>
-        ))}
-      </div>
-
-      <div className="grid grid-cols-1 lg:grid-cols-3 gap-6">
-        {/* Recent Feedback */}
-        <div className="lg:col-span-2 rounded-xl border border-border bg-card p-5 shadow-sm">
-          <div className="flex items-center justify-between mb-4">
-            <h2 className="text-base font-semibold">Recent Feedback</h2>
-            <Link
-              href="/feedback"
-              className="text-xs font-medium text-primary hover:underline inline-flex items-center gap-1"
-            >
-              View All <ArrowRight className="h-3 w-3" />
-            </Link>
-          </div>
-          {recentFeedback.length === 0 ? (
-            <p className="text-sm text-muted-foreground py-8 text-center">
-              No feedback yet this sprint. Be the first to contribute!
-            </p>
-          ) : (
-            <div className="space-y-3">
-              {recentFeedback.map((item) => (
-                <div
-                  key={item.id}
-                  className="flex items-start gap-3 rounded-lg border border-border p-3"
-                >
-                  <div className="flex-1 min-w-0">
-                    <p className="text-sm text-foreground line-clamp-2">{item.content}</p>
-                    <div className="flex items-center gap-2 mt-1.5">
-                      <span className="inline-flex items-center gap-1 text-[11px] text-muted-foreground">
-                        <ThumbsUp className="h-3 w-3" /> {item.upvotes.length}
-                      </span>
-                      <span className="text-[11px] rounded-full px-2 py-0.5 bg-muted text-muted-foreground font-medium">
-                        {item.category === "slowed-us-down"
-                          ? "Slowed Us Down"
-                          : item.category === "should-try"
-                          ? "Should Try"
-                          : "Went Well"}
-                      </span>
-                    </div>
-                  </div>
-                </div>
-              ))}
-            </div>
-          )}
+          <h1 className="text-2xl font-bold tracking-tight">RetroBoard</h1>
         </div>
 
-        {/* Sidebar: Sprint MVP + Activity */}
-        <div className="space-y-6">
-          {/* Sprint MVP */}
-          {topContributor && topContributor.sprintPoints > 0 && (
-            <div className="rounded-xl border border-amber-200 bg-gradient-to-br from-amber-50 to-orange-50 p-5 shadow-sm">
-              <div className="flex items-center gap-2 mb-3">
-                <Trophy className="h-5 w-5 text-amber-600" />
-                <h2 className="text-base font-semibold text-amber-900">Sprint MVP</h2>
-              </div>
-              <div className="flex items-center gap-3">
-                <div className="h-12 w-12 rounded-full bg-amber-200 flex items-center justify-center text-amber-800 font-bold text-lg">
-                  {topContributor.user.avatar}
-                </div>
-                <div>
-                  <p className="font-semibold text-amber-900">{topContributor.user.name}</p>
-                  <p className="text-sm text-amber-700">
-                    <span className="font-bold">{topContributor.sprintPoints}</span> points this sprint
-                  </p>
-                </div>
-              </div>
-            </div>
-          )}
+        {/* Card */}
+        <div className="rounded-xl border border-border bg-card shadow-sm">
+          <div className="text-center px-6 pt-6 pb-2">
+            <h2 className="text-xl font-semibold">Welcome to RetroBoard</h2>
+            <p className="text-sm text-muted-foreground mt-1">Set up your identity to get started.</p>
+          </div>
 
-          {/* Recent Points Activity */}
-          <div className="rounded-xl border border-border bg-card p-5 shadow-sm">
-            <div className="flex items-center justify-between mb-4">
-              <h2 className="text-base font-semibold">Points Activity</h2>
-              <Link
-                href="/leaderboard"
-                className="text-xs font-medium text-primary hover:underline inline-flex items-center gap-1"
+          <form onSubmit={handleSubmit} className="px-6 pb-6 pt-4 space-y-4">
+            {/* Name */}
+            <div className="space-y-1.5">
+              <label htmlFor="name" className="text-sm font-medium">
+                Your Name
+              </label>
+              <input
+                id="name"
+                type="text"
+                placeholder="e.g. Jane Doe"
+                value={name}
+                onChange={(e) => { setName(e.target.value); setError(null) }}
+                className={`w-full rounded-md border px-3 py-2 text-sm bg-secondary/50 outline-none focus:ring-2 focus:ring-ring transition ${
+                  error ? "border-destructive focus:ring-destructive" : "border-border"
+                }`}
+              />
+              {error && (
+                <p className="text-[13px] font-medium text-destructive animate-in fade-in">{error}</p>
+              )}
+            </div>
+
+            {/* Username */}
+            <div className="space-y-1.5">
+              <label htmlFor="username" className="text-sm font-medium">
+                Username
+              </label>
+              <input
+                id="username"
+                type="text"
+                placeholder="e.g. jdoe"
+                value={username}
+                onChange={(e) => setUsername(e.target.value)}
+                className="w-full rounded-md border border-border px-3 py-2 text-sm bg-secondary/50 outline-none focus:ring-2 focus:ring-ring transition"
+              />
+            </div>
+
+            {/* Pod */}
+            <div className="space-y-1.5">
+              <label htmlFor="pod" className="text-sm font-medium">
+                Pod
+              </label>
+              <select
+                id="pod"
+                value={pod}
+                onChange={(e) => setPod(e.target.value)}
+                className="w-full rounded-md border border-border px-3 py-2 text-sm bg-secondary/50 outline-none focus:ring-2 focus:ring-ring transition"
               >
-                Leaderboard <ArrowRight className="h-3 w-3" />
-              </Link>
+                <option value="" disabled>Select a pod</option>
+                <option value="pod1">Pod 1</option>
+                <option value="pod2">Pod 2</option>
+                <option value="pod3">Pod 3</option>
+              </select>
             </div>
-            {recentPoints.length === 0 ? (
-              <p className="text-sm text-muted-foreground py-4 text-center">
-                No activity yet.
+
+            <div className="pt-2 space-y-3">
+              <button
+                type="submit"
+                disabled={isDisabled}
+                className="w-full h-11 rounded-md bg-primary text-primary-foreground text-base font-bold transition hover:opacity-90 disabled:opacity-50 disabled:cursor-not-allowed"
+              >
+                {isLoading ? "Joining..." : "Join RetroBoard"}
+              </button>
+              <p className="text-center text-xs text-muted-foreground">
+                Your name and pod are saved to the shared team database. No account required.
               </p>
-            ) : (
-              <div className="space-y-2.5">
-                {recentPoints.map((event) => {
-                  const user = users.find((u) => u.id === event.userId)
-                  return (
-                    <div key={event.id} className="flex items-center gap-2.5">
-                      <div className="h-7 w-7 rounded-full bg-primary/10 flex items-center justify-center text-[10px] font-bold text-primary">
-                        {user?.avatar}
-                      </div>
-                      <div className="flex-1 min-w-0">
-                        <p className="text-xs text-foreground truncate">
-                          {event.description}
-                        </p>
-                      </div>
-                      <span className="inline-flex items-center gap-0.5 text-xs font-bold text-amber-600">
-                        <Zap className="h-3 w-3" />+{event.points}
-                      </span>
-                    </div>
-                  )
-                })}
-              </div>
-            )}
-          </div>
+            </div>
+          </form>
         </div>
+
       </div>
     </div>
   )
