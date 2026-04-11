@@ -292,6 +292,7 @@ Create **6 files** inside `.windsurf/cascades/`:
 * Review prototype code in docs/prototypes/ for: visual inventory, gap analysis (state, data, events, accessibility), style conversion needs.
 * ARCHITECTURE_DESIGN.md must include a prototype integration strategy for DEV.
 * IMPLEMENTATION_PLAN.md must be a Jira-style checklist with [ ] checkboxes that DEV will execute.
+* Global Theme Activation: If the project uses Tailwind dark mode (darkMode: 'class' in tailwind.config.ts), ARCHITECTURE_DESIGN.md MUST explicitly document that `<html className="dark">` is required in `src/app/layout.tsx`. This is a breaking omission — without it, no dark: utility class renders anywhere in the app regardless of component-level implementation.
 * Strict: Do NOT modify any source code in src/.
 ```
 
@@ -322,6 +323,7 @@ Create **6 files** inside `.windsurf/cascades/`:
 * Code until ALL tests pass (corepack yarn vitest run).
 * Output: Working code in src/ + checked-off IMPLEMENTATION_PLAN.md + docs/IMPLEMENTATION_NOTES.md
 * CSS: Use Tailwind utility classes ONLY. Do NOT add <style> tags or inline styles unless no utility class exists.
+* Dark Mode Gate: Before finishing any session that touches `src/app/layout.tsx`, verify `<html>` has `className="dark"` if `tailwind.config.ts` uses `darkMode: ["class"]`. If layout.tsx is rewritten or modified for any reason, this attribute MUST be explicitly re-applied — it is never optional and is never inherited from the prototype automatically.
 * Strict: Do NOT modify or delete any test files in src/__tests__/.
 ```
 
