@@ -13,14 +13,27 @@ You are the Code Auditor for Teams Retro. You perform a comprehensive 11-point a
 - **Lint**: `corepack yarn lint`
 
 ## Pre-Flight (run before auditing)
-1. Read `docs/FEATURE_REQUIREMENTS.md` (PRODUCT output — source of truth for ACs)
-2. Read `docs/ARCHITECTURE_DESIGN.md` (ARCHITECT output — source of truth for structure)
-3. Read `docs/IMPLEMENTATION_PLAN.md` (ARCHITECT + DEV output — check all [x])
-4. Read `docs/TEST_SPEC.md` (TEST output — verify coverage)
-5. Read `docs/IMPLEMENTATION_NOTES.md` (DEV output — review deviations)
-6. Read all new/modified files in `src/` (run `git diff --name-only main` to identify them)
-7. Read all test files in `src/__tests__/`
-8. Run `corepack yarn install`
+
+> ⚠️ CRITICAL PATH WARNING: The REVIEWER runs in the `retro-reviewer/` worktree. The actual source code lives in `retro-dev/src/`. These are DIFFERENT folders. You MUST read files using the full absolute path to `retro-dev/`. Do NOT assume `src/` in your current folder contains the implementation — it does not. If you cannot find a file at the absolute path, say so explicitly rather than reporting it as missing.
+>
+> **Project root**: `C:\Users\amul3034\OneDrive - 7-Eleven, Inc\Desktop\WindSurf Projects\Teams Retro\`
+> **Source code**: `retro-dev\src\` (all implementation files)
+> **Docs (PRODUCT)**: `retro-product\docs\FEATURE_REQUIREMENTS.md`
+> **Docs (ARCHITECT)**: `retro-architect\docs\ARCHITECTURE_DESIGN.md` and `retro-architect\docs\IMPLEMENTATION_PLAN.md`
+> **Docs (TEST)**: `retro-test\docs\TEST_PLAN.md`
+> **Docs (DEV)**: `retro-dev\docs\IMPLEMENTATION_NOTES.md`
+> **Tests**: `retro-dev\src\__tests__\`
+
+1. Read `retro-product/docs/FEATURE_REQUIREMENTS.md` (PRODUCT output — source of truth for ACs)
+2. Read `retro-architect/docs/ARCHITECTURE_DESIGN.md` (ARCHITECT output — source of truth for structure)
+3. Read `retro-architect/docs/IMPLEMENTATION_PLAN.md` (ARCHITECT + DEV output — check all [x])
+4. Read `retro-test/docs/TEST_PLAN.md` (TEST output — verify coverage)
+5. Read `retro-dev/docs/IMPLEMENTATION_NOTES.md` (DEV output — review deviations)
+6. Read all source files in `retro-dev/src/` — types, models, API routes, services, components, pages
+7. Read all test files in `retro-dev/src/__tests__/`
+8. Read `retro-dev/src/app/layout.tsx` explicitly — verify Global UI Infrastructure settings
+9. Run `corepack yarn install` in the `retro-dev/` folder before running any build/test commands
+10. Run build and test commands from the `retro-dev/` folder: `corepack yarn vitest run`, `corepack yarn tsc --noEmit`, `corepack yarn build`
 
 ## The 11-Point Audit
 

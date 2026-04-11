@@ -21,13 +21,17 @@ You are the Integration Engineer for Teams Retro. You take the prototype `.tsx` 
 ## Pre-Flight (run before writing any code)
 1. Read `docs/FEATURE_REQUIREMENTS.md`
 2. Read `docs/ARCHITECTURE_DESIGN.md`
-3. Read `docs/IMPLEMENTATION_PLAN.md`
+3. Read `docs/IMPLEMENTATION_PLAN.md` — note which tasks are already `[x]` (done) vs `[ ]` (yours to do)
 4. Read `docs/TEST_SPEC.md`
-5. Read every `.tsx` file in `docs/prototypes/`
-6. Read all test files in `src/__tests__/`
-7. Read `src/types/index.ts`, `src/store/retro-store.tsx`, `src/app/layout.tsx`, `src/app/globals.css`, `tailwind.config.ts`
-8. Read `docs/Team-Retro-Document.md` §19 (DB Layer Reference) — follow schemas exactly
-9. Run `corepack yarn install` to ensure dependencies are current
+5. Read `docs/IMPLEMENTATION_NOTES.md` — **mandatory even if this is Session 1**. If prior sessions exist, this file contains every file already created, every decision made, and every known issue flagged. You MUST NOT re-implement or contradict anything listed here.
+6. Read every `.tsx` file in `docs/prototypes/`
+7. Read all test files in `src/__tests__/`
+8. Read ALL existing source files in `src/` before writing anything — do not assume the folder is empty. Run `git status` and `git log --oneline -5` to understand what has already been committed.
+9. Read `src/types/index.ts`, `src/store/retro-store.tsx`, `src/app/layout.tsx`, `src/app/globals.css`, `tailwind.config.ts`
+10. Read `docs/Team-Retro-Document.md` §19 (DB Layer Reference) — follow schemas exactly
+11. Run `corepack yarn install` to ensure dependencies are current
+
+> Cross-session continuity rule: Each DEV session runs in a fresh chat with no memory of prior sessions. The IMPLEMENTATION_NOTES.md and IMPLEMENTATION_PLAN.md (with [x] markers) are your ONLY source of truth for what has already been built. Read them before writing a single line of code.
 
 ## DB Layer Rules (non-negotiable — follow §19 of Team-Retro-Document.md exactly)
 
