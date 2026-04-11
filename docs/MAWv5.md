@@ -780,15 +780,46 @@ git fetch origin dev-branch
 git merge origin/dev-branch --no-edit
 git push origin main
 ```
-6. **Sync Replit** — paste this into Replit Agent chat every time you want to see the latest code from GitHub:
+6. **Sync Replit (two-way — read carefully)**
+
+> ⚠️ **Critical finding**: Replit Agent maintains its own filesystem with Replit-specific fixes that GitHub does not have. These fixes are required for the app to run correctly inside Replit's environment:
+> - `package.json` — port 5000 binding (Replit requires this)
+> - `next.config.js` — allowed dev origins (prevents preview iframe crash)
+> - `src/components/feedback-card.tsx` — hydration crash fix (SSR/client mismatch in Replit)
+> - `replit.md` — Replit project notes
+>
+> **Never use `git reset --hard` to sync Replit** — it will wipe these fixes and break the preview.
+
+**Step 6a — Pull GitHub changes INTO Replit safely** (paste into Replit Agent chat):
 ```
-Sync from GitHub:
+I need to pull the latest changes from GitHub (main branch) without losing any Replit-specific fixes.
+Please use git fetch + merge (NOT reset --hard) to bring in only the new files from GitHub,
+preserving our local changes to package.json, next.config.js, replit.md, and any hydration fixes.
+
 git fetch origin main
-git reset --hard origin/main
-npm install
-npm run dev
+git merge origin/main --no-edit
+
+If there are merge conflicts, keep our Replit-specific values (port 5000, allowed origins) and take the GitHub version for all other files.
+After merging, run: npm run dev
 ```
-> ⚠️ **Important**: Replit Agent manages its own filesystem. It does NOT automatically pick up GitHub pushes. You must explicitly ask it to sync after every `git push origin main` from Windsurf. Save the prompt above in Replit as a reusable note or ask Replit Agent: "Save this as a workflow called Sync from GitHub so I can trigger it anytime."
+
+**Step 6b — Push Replit-specific fixes BACK to GitHub** (do this once, then keep in sync):
+
+Ask Replit Agent:
+```
+Please push the Replit-specific fixes back to GitHub so they are preserved in the main repo.
+The files that need to go back are: package.json, next.config.js, next.config.ts (if it exists), replit.md,
+and any component files you modified to fix hydration or preview crashes.
+
+git add package.json next.config.js replit.md
+git add src/components/feedback-card.tsx
+git commit -m "Replit: port binding, dev origins, hydration fix — Replit environment config"
+git push origin main
+```
+
+After Step 6b is done **once**, the two environments stay in sync and Step 6a (safe merge) is all you need going forward.
+
+> 💡 **Mental model**: Think of it as two workers on the same codebase. Windsurf handles business logic. Replit handles environment config. Both push to `main`. Neither does a hard reset.
 
 ---
 
