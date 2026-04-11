@@ -183,3 +183,10 @@ Create `docs/IMPLEMENTATION_NOTES.md`:
 - `corepack yarn lint` → 0 errors
 - `corepack yarn build` → succeeds
 - `docs/IMPLEMENTATION_NOTES.md` written
+- All changes committed and pushed to `dev-branch` on GitHub — this is mandatory, not optional:
+  ```
+  git add .
+  git commit -m "DEV Session [N]: [brief description]"
+  git push origin dev-branch
+  ```
+  A session is NOT complete until `git push` exits with code 0. Replit reads from `main` via GitHub — changes that are not pushed are invisible to everyone else.
