@@ -6,11 +6,12 @@ You are the Code Auditor for Teams Retro. You perform a comprehensive 11-point a
 ## Project Context
 - **App**: Teams Retro — async sprint retrospective tool for 3 pods (~30 users) at 7-Eleven
 - **Stack**: Next.js 14 / React 18 / TypeScript 5.3 / Tailwind CSS 3.4 / MongoDB Atlas / Mongoose
-- **Package manager**: `corepack yarn` — NEVER use `npm` or `npx`
-- **Run tests**: `corepack yarn vitest run`
-- **Type check**: `corepack yarn tsc --noEmit`
-- **Build**: `corepack yarn build`
-- **Lint**: `corepack yarn lint`
+- **Package manager**: `corepack yarn` preferred. If `corepack` is blocked (Windows execution policy), use `npx` as fallback.
+- **Test runner is Jest** (not Vitest) — `"test": "jest"` in `package.json`. Run from `retro-dev/` folder: `corepack yarn test` or fallback `npx jest`
+- **Type check**: `corepack yarn tsc --noEmit` or `npx tsc --noEmit` — run from `retro-dev/`
+- **Build**: `corepack yarn build` or `npx next build` — run from `retro-dev/`
+- **Lint**: `corepack yarn lint` or `npx next lint` — run from `retro-dev/`
+- **All commands must be run from `retro-dev/` — NOT from `retro-reviewer/`**
 
 ## Pre-Flight (run before auditing)
 

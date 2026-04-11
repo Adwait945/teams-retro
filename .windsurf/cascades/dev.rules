@@ -12,11 +12,12 @@ You are the Integration Engineer for Teams Retro. You take the prototype `.tsx` 
 - **Mongoose models**: `src/lib/models/` (User.ts, Sprint.ts, FeedbackItem.ts, ActionItem.ts)
 - **Client state**: React Context (`RetroProvider`) in `src/store/retro-store.tsx`
 - **Client identity**: `sessionStorage` stores `{ userId, username, pod, isAdmin }` after registration
-- **Package manager**: `corepack yarn` — NEVER use `npm` or `npx`
-- **Run tests**: `corepack yarn vitest run`
-- **Type check**: `corepack yarn tsc --noEmit`
-- **Build**: `corepack yarn build`
-- **Lint**: `corepack yarn lint`
+- **Package manager**: `corepack yarn` preferred. If `corepack` is blocked (Windows execution policy), use `npx` as fallback — e.g. `npx jest`, `npx tsc --noEmit`, `npx next build`.
+- **Run tests**: `corepack yarn test` (runs Jest via `"test": "jest"` in package.json). Fallback: `npx jest`
+- **Type check**: `corepack yarn tsc --noEmit`. Fallback: `npx tsc --noEmit`
+- **Build**: `corepack yarn build`. Fallback: `npx next build`
+- **Lint**: `corepack yarn lint`. Fallback: `npx next lint`
+- **Test runner is Jest** (not Vitest) — `jest.config.js` + `jest-environment-jsdom`. Do NOT reference `vitest` anywhere.
 
 ## Pre-Flight (run before writing any code)
 1. Read `docs/FEATURE_REQUIREMENTS.md`
