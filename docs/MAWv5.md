@@ -768,11 +768,27 @@ When done, run: corepack yarn vitest run && corepack yarn tsc --noEmit && corepa
 ```
 
 3. **Review the output.** Did all tests pass? Does `corepack yarn build` succeed? Read `IMPLEMENTATION_NOTES.md` for any deviations.
-4. Click **"Merge"** → Commit:
+4. Click **"Merge"** → Commit and push `dev-branch`:
 ```bash
 git add .
 git commit -m "DEV: Implementation for Sprint 1 — all tests passing"
+git push origin dev-branch
 ```
+5. Merge `dev-branch` into `main` so Replit can see the changes (run in the `teams-retro/` folder):
+```bash
+git fetch origin dev-branch
+git merge origin/dev-branch --no-edit
+git push origin main
+```
+6. **Sync Replit** — paste this into Replit Agent chat every time you want to see the latest code from GitHub:
+```
+Sync from GitHub:
+git fetch origin main
+git reset --hard origin/main
+npm install
+npm run dev
+```
+> ⚠️ **Important**: Replit Agent manages its own filesystem. It does NOT automatically pick up GitHub pushes. You must explicitly ask it to sync after every `git push origin main` from Windsurf. Save the prompt above in Replit as a reusable note or ask Replit Agent: "Save this as a workflow called Sync from GitHub so I can trigger it anytime."
 
 ---
 
