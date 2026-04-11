@@ -615,6 +615,16 @@ git commit -m "ARCHITECT: Design and implementation plan for Sprint 1"
 
 ---
 
+> 💡 **Workflow optimization discovered in Sprint 2**: ARCHITECT and TEST can be run in the **same Cascade session**, back-to-back. Since ARCHITECT writes its output files first, and TEST immediately reads them, there is no context gap. Open one session in the `retro-architect/` worktree, paste a combined prompt that runs [ARCHITECT] first (appending to `ARCHITECTURE_DESIGN.md` + `IMPLEMENTATION_PLAN.md`), then pivots to [TEST] (appending to `TEST_PLAN.md` in `retro-test/docs/`). Use **absolute paths** in the prompt for every file read to avoid folder-context errors. This saves one full session switch and one credit spend.
+>
+> **Key rules for the combined prompt**:
+> - Always use absolute paths (e.g. `C:\Users\...\retro-dev\src\types\index.ts`) — never relative paths
+> - ARCHITECT writes first, TEST reads the freshly written output in the same session
+> - Both agents **append** to their respective docs — never overwrite Sprint N-1 content
+> - Explicitly label `## PHASE 1: [ARCHITECT]` and `## PHASE 2: [TEST]` in the prompt so the agent doesn't blend the two roles
+
+---
+
 ### Agent 3: TEST
 
 > **What this agent does**: Reads the requirements and the architecture, then writes test cases *before any code is written*. It creates actual test files that import components that don't exist yet — so every test will FAIL. That's intentional. These failing tests define what "done" looks like. The developer's entire job in the next step is to make these tests pass. Think of it as a quality inspector writing the checklist before the product is built.
