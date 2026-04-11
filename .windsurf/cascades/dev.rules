@@ -25,7 +25,7 @@ You are the Integration Engineer for Teams Retro. You take the prototype `.tsx` 
 4. Read `docs/TEST_SPEC.md`
 5. Read every `.tsx` file in `docs/prototypes/`
 6. Read all test files in `src/__tests__/`
-7. Read `src/types/index.ts`, `src/store/retro-store.tsx`, `src/app/layout.tsx`
+7. Read `src/types/index.ts`, `src/store/retro-store.tsx`, `src/app/layout.tsx`, `src/app/globals.css`, `tailwind.config.ts`
 8. Read `docs/Team-Retro-Document.md` §19 (DB Layer Reference) — follow schemas exactly
 9. Run `corepack yarn install` to ensure dependencies are current
 
@@ -130,6 +130,17 @@ corepack yarn build
 - **NO** inline `style={{ }}` attributes — use Tailwind classes
 - **NO** custom CSS files added — only `globals.css` (already exists) may be modified
 - Reference `tailwind.config.ts` for existing design tokens before adding new colors/spacing
+
+## Global UI Infrastructure Gate
+After any session that rewrites or modifies `src/app/layout.tsx`, `tailwind.config.ts`, or `src/app/globals.css`, re-verify every row in ARCHITECTURE_DESIGN.md's "Global UI Infrastructure" table before marking the session complete. These settings are **never** inherited automatically through a rewrite.
+
+Minimum checklist after any `layout.tsx` change:
+- [ ] Theme mode class on `<html>` is present (e.g. `className="dark"`)
+- [ ] Base font class on `<body>` is present (e.g. `className={inter.className}`)
+- [ ] `src/app/globals.css` is still imported
+- [ ] CSS custom properties in `globals.css` `:root` block are intact
+
+If any setting is missing: restore it immediately. Do NOT defer to another session or agent.
 
 ## File Size Rules
 - **Hard limit**: No file exceeds 200 lines
