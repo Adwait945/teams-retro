@@ -1134,3 +1134,399 @@ All Sprint 4 fields are **already defined** in `src/types/index.ts` and `src/lib
 - [ ] All shadcn imports eliminated from `sprint-setup/page.tsx` (plain HTML + Tailwind only)
 - [ ] `GET /api/users?username=X` filter works correctly
 - [ ] Committed: `git commit -m "Sprint 4 complete: Sprint Setup + Admin Controls"`
+
+---
+
+---
+
+# Sprint 5 — Feature Requirements
+
+**Mode**: [PRODUCT]  
+**Date**: April 2026  
+**Theme**: Polish, Error Handling & Smoke Test  
+**Epics**: 5.1 — Error Handling & Edge Cases; 5.2 — Accessibility & data-testid Pass  
+**DEV Sessions**: 1 (~200 lines surgical edits across existing files)  
+**Prerequisite**: Sprints 1–4 complete and merged
+
+---
+
+## Pre-Flight Audit Findings (codebase state at Sprint 5 start)
+
+The following facts were confirmed by reading every affected file before specifying any AC. They drive the SKIP/MODIFY determination below.
+
+| File | Auth Guard | Error State | Notes |
+|---|---|---|---|
+| `dashboard/page.tsx` | ✅ EXISTS (lines 41–45) | ❌ MISSING — catch is silent | Sprint 5 adds error state only |
+| `feedback/page.tsx` | ✅ EXISTS (lines 41–45) | ❌ MISSING — no catch, only finally | Sprint 5 adds catch + error state |
+| `actions/page.tsx` | ✅ EXISTS (lines 42–46) | ✅ EXISTS — `setError('Failed to load data.')` | SKIP both |
+| `sprint-setup/page.tsx` | Planned in Sprint 4 | Planned in Sprint 4 | SKIP — Sprint 4 covers it |
+
+| Modal | `role="dialog"` | `aria-labelledby` | `data-testid` | Submit disabled | Close btn testid | Focus trap | Return focus |
+|---|---|---|---|---|---|---|---|
+| `SubmitFeedbackModal` | ✅ | ✅ `sfm-title` | ✅ `submit-feedback-modal` | ✅ | ✅ `modal-close-btn` | ❌ | ❌ |
+| `NewActionItemModal` | ✅ | ✅ `nam-title` | ✅ `new-action-modal` | ✅ | ❌ missing | ❌ | ❌ |
+| `ConvertActionModal` | ✅ | ✅ `cam-title` | ✅ `convert-action-modal` | ✅ | ❌ missing | ❌ | ❌ |
+| `VerifyImpactModal` | ✅ | ✅ `vim-title` | ✅ `verify-impact-modal` | ✅ | ❌ missing | ❌ | ❌ |
+
+| API Routes | try/catch | void err / console.error | 500 return |
+|---|---|---|---|
+| All 9 routes | ✅ all present | ✅ consistent | ✅ all return `{ error: string }` |
+
+| Shell.tsx | Active route highlight |
+|---|---|
+| ✅ | `pathname === item.href` — **AC-5.1.5 already satisfied** |
+
+---
+
+## Epic 5.1 — Error Handling & Edge Cases
+
+### AC-5.1.1 — API failure shows inline error; no crash
+
+**Affected pages**: `dashboard/page.tsx` (MODIFY), `feedback/page.tsx` (MODIFY)  
+**Already compliant**: `actions/page.tsx` (SKIP — has `setError` + error render), `sprint-setup/page.tsx` (SKIP — Sprint 4 sets `loadError`)
+
+**Specification**:
+
+| Element | Type | `data-testid` | Trigger |
+|---|---|---|---|
+| Error banner | `<div>` | `"load-error"` | fetch throws or `res.ok === false` |
+| Error message text | Static string | — | "Something went wrong. Please try again." |
+
+**Business rules**:
+- The error message **must** read exactly: `"Something went wrong. Please try again."`
+- Error state renders inside `<Shell>` — the page does NOT crash or show a blank screen
+- Error state replaces the page content (same pattern as `actions/page.tsx` — returns early from render)
+- `isLoading` must be set to `false` in `finally` even when error occurs
+- `dashboard/page.tsx`: the catch block currently has `// leave sprint null` comment — **add** `setLoadError(true)` and add an error state render branch
+- `feedback/page.tsx`: the `load()` function has no `catch` — **add** a catch block with `setLoadError(true)`
+
+**`dashboard/page.tsx` change summary**:
+- Add `const [loadError, setLoadError] = useState(false)` state
+- In `catch`: replace silent comment with `setLoadError(true)`
+- Add render branch: `if (loadError) return <Shell><div data-testid="load-error">Something went wrong. Please try again.</div></Shell>`
+
+**`feedback/page.tsx` change summary**:
+- Add `const [loadError, setLoadError] = useState(false)` state
+- Add `catch` block (currently missing): `catch { setLoadError(true) }`
+- Add render branch: `if (loadError) return <Shell sprintName=""><div data-testid="load-error">Something went wrong. Please try again.</div></Shell>`
+
+---
+
+### AC-5.1.2 — Empty states render correctly on first load
+
+**Specification**: All empty states are rendered correctly when there is no data. Verified per page:
+
+| Page | Empty state condition | UI element | `data-testid` | Message |
+|---|---|---|---|---|
+| `dashboard/page.tsx` | `sprint === null` | `<div>` wrapping empty state block | `"dashboard-empty-state"` | "No sprint data yet." + CTA button |
+| `feedback/page.tsx` | `sprint === null` | No explicit empty state — feedback columns render empty | `"feedback-empty-state"` (add) | "No active sprint. Set one up to begin." |
+| `actions/page.tsx` | `actions.length === 0` | Existing empty state `<div>` | `"actions-empty-state"` (add) | "No action items yet." (already present as text) |
+
+**Business rules**:
+- `dashboard/page.tsx`: The empty state block (lines 143–158) needs `data-testid="dashboard-empty-state"` added to the outer `<div>`. The "Set Up Sprint →" button needs `data-testid="dashboard-setup-btn"`.
+- `feedback/page.tsx`: When `sprint === null` and loading is done, add a conditional render above the three-column grid: `<div data-testid="feedback-empty-state">No active sprint. Set one up to begin.</div>`
+- `actions/page.tsx`: The empty state `<div>` at line 186 needs `data-testid="actions-empty-state"`. The two CTA buttons inside need testids (see AC-5.2.1).
+
+---
+
+### AC-5.1.3 — `/dashboard` redirects unauthenticated users to `/`
+
+**Status**: ✅ **Already satisfied** — `dashboard/page.tsx` lines 41–45 call `getCurrentUser()` and `router.push('/')` when null.
+
+**Specification for EH-1 test**: The existing guard must be confirmed by test EH-1. No code change needed. Test asserts `mockPush` is called with `'/'` when `getCurrentUser` returns `null`.
+
+---
+
+### AC-5.1.4 — Forms show inline validation for required fields
+
+**Affected components**: `SubmitFeedbackModal`, `NewActionItemModal`, `ConvertActionModal`, `VerifyImpactModal`
+
+**Status**: All four modals already disable their submit button when required fields are empty (`submitDisabled` logic present in all). This satisfies the AC for preventing submission.
+
+**Specification**:
+- The `disabled` submit button pattern **is sufficient** for AC-5.1.4 — no additional inline `<p>` error text is required.
+- EH-6 confirms this behaviour by asserting `modal-submit-btn` is disabled when `content` is empty.
+- **No code changes** needed for AC-5.1.4 — already compliant in all 4 modals.
+
+---
+
+### AC-5.1.5 — Sidebar correctly highlights active route
+
+**Status**: ✅ **Already satisfied** — `Shell.tsx` uses `pathname === item.href` to apply active class (lines 54–72).
+
+**No code changes needed.** Covered by existing Shell render tests in Sprint 1.
+
+---
+
+## Epic 5.2 — Accessibility & data-testid Pass
+
+### AC-5.2.1 — Every `<button>` has `data-testid`
+
+**Audit of missing `data-testid` values on buttons**:
+
+| File | Button element | Current testid | Required testid |
+|---|---|---|---|
+| `dashboard/page.tsx` line 147 | "Set Up Sprint →" | ❌ none | `"dashboard-setup-btn"` |
+| `actions/page.tsx` line 195 | "Go to Feedback Board" | ❌ none | `"actions-goto-feedback-btn"` |
+| `actions/page.tsx` line 201 | "New Action Item" (empty state) | ❌ none | `"actions-empty-new-btn"` |
+| `NewActionItemModal.tsx` line 82 | Close (×) button | ❌ none | `"nam-close-btn"` |
+| `ConvertActionModal.tsx` line 90 | Close (×) button | ❌ none | `"cam-close-btn"` |
+| `VerifyImpactModal.tsx` line 64 | Close (×) button | ❌ none | `"vim-close-btn"` |
+| `NewActionItemModal.tsx` line 157 | Cancel button | ❌ none | `"nam-cancel-btn"` |
+| `ConvertActionModal.tsx` line 171 | Cancel button | ❌ none | `"cam-cancel-btn"` |
+| `VerifyImpactModal.tsx` line 107 | Cancel button | ❌ none | `"vim-cancel-btn"` |
+
+**Already compliant** (no change needed):
+- `SubmitFeedbackModal`: `modal-close-btn` ✅, `modal-submit-btn` ✅, Cancel has no testid → add `"sfm-cancel-btn"`
+- `actions/page.tsx` header button: `open-new-action-btn` ✅
+- `feedback/page.tsx` header button: `open-modal-btn` ✅
+
+| File | Cancel button | Required testid |
+|---|---|---|
+| `SubmitFeedbackModal.tsx` line 170 | Cancel button | `"sfm-cancel-btn"` |
+
+**Full additions list** (10 buttons across 5 files):
+
+| `data-testid` | File | Element |
+|---|---|---|
+| `"dashboard-setup-btn"` | `dashboard/page.tsx` | "Set Up Sprint →" button |
+| `"actions-goto-feedback-btn"` | `actions/page.tsx` | "Go to Feedback Board" (empty state) |
+| `"actions-empty-new-btn"` | `actions/page.tsx` | "New Action Item" (empty state) |
+| `"nam-close-btn"` | `NewActionItemModal.tsx` | Close × button |
+| `"nam-cancel-btn"` | `NewActionItemModal.tsx` | Cancel button |
+| `"cam-close-btn"` | `ConvertActionModal.tsx` | Close × button |
+| `"cam-cancel-btn"` | `ConvertActionModal.tsx` | Cancel button |
+| `"vim-close-btn"` | `VerifyImpactModal.tsx` | Close × button |
+| `"vim-cancel-btn"` | `VerifyImpactModal.tsx` | Cancel button |
+| `"sfm-cancel-btn"` | `SubmitFeedbackModal.tsx` | Cancel button |
+
+---
+
+### AC-5.2.2 — Every `<input>` and `<select>` has `data-testid` and `<label>`
+
+**Audit**:
+
+| File | Element | id | `data-testid` | `<label>` |
+|---|---|---|---|---|
+| `SubmitFeedbackModal` — `<textarea id="sfm-content">` | textarea | `sfm-content` | ❌ missing | ✅ `htmlFor="sfm-content"` |
+| `SubmitFeedbackModal` — `<textarea id="sfm-suggestion">` | textarea | `sfm-suggestion` | ❌ missing | ✅ `htmlFor="sfm-suggestion"` |
+| `SubmitFeedbackModal` — anonymous `<input type="checkbox">` | checkbox | none | ❌ missing | ✅ wrapping `<label>` |
+| `SubmitFeedbackModal` — category `<input type="radio">` × 3 | radio | none | ❌ missing | ✅ wrapping `<label>` |
+| `NewActionItemModal` — `<input id="nam-title-input">` | text | `nam-title-input` | ❌ missing | ✅ |
+| `NewActionItemModal` — `<textarea id="nam-description">` | textarea | `nam-description` | ❌ missing | ✅ |
+| `NewActionItemModal` — `<select id="nam-owner">` | select | `nam-owner` | ❌ missing | ✅ |
+| `NewActionItemModal` — `<input id="nam-due-date">` | date | `nam-due-date` | ❌ missing | ✅ |
+| `ConvertActionModal` — `<input id="cam-title-input">` | text | `cam-title-input` | ❌ missing | ✅ |
+| `ConvertActionModal` — `<textarea id="cam-description">` | textarea | `cam-description` | ❌ missing | ✅ |
+| `ConvertActionModal` — `<select id="cam-owner">` | select | `cam-owner` | ❌ missing | ✅ |
+| `ConvertActionModal` — `<input id="cam-due-date">` | date | `cam-due-date` | ❌ missing | ✅ |
+| `VerifyImpactModal` — `<textarea id="vim-impact">` | textarea | `vim-impact` | ❌ missing | ✅ |
+
+**Required `data-testid` additions** (all inputs/selects/textareas in modals):
+
+| `data-testid` | Element | File |
+|---|---|---|
+| `"sfm-content"` | `<textarea id="sfm-content">` | `SubmitFeedbackModal.tsx` |
+| `"sfm-suggestion"` | `<textarea id="sfm-suggestion">` | `SubmitFeedbackModal.tsx` |
+| `"sfm-anonymous"` | `<input type="checkbox">` | `SubmitFeedbackModal.tsx` |
+| `"sfm-category-slowed"` | `<input type="radio" value="slowed-us-down">` | `SubmitFeedbackModal.tsx` |
+| `"sfm-category-try"` | `<input type="radio" value="should-try">` | `SubmitFeedbackModal.tsx` |
+| `"sfm-category-well"` | `<input type="radio" value="went-well">` | `SubmitFeedbackModal.tsx` |
+| `"nam-title-input"` | `<input id="nam-title-input">` | `NewActionItemModal.tsx` |
+| `"nam-description"` | `<textarea id="nam-description">` | `NewActionItemModal.tsx` |
+| `"nam-owner"` | `<select id="nam-owner">` | `NewActionItemModal.tsx` |
+| `"nam-due-date"` | `<input id="nam-due-date">` | `NewActionItemModal.tsx` |
+| `"cam-title-input"` | `<input id="cam-title-input">` | `ConvertActionModal.tsx` |
+| `"cam-description"` | `<textarea id="cam-description">` | `ConvertActionModal.tsx` |
+| `"cam-owner"` | `<select id="cam-owner">` | `ConvertActionModal.tsx` |
+| `"cam-due-date"` | `<input id="cam-due-date">` | `ConvertActionModal.tsx` |
+| `"vim-impact"` | `<textarea id="vim-impact">` | `VerifyImpactModal.tsx` |
+
+**Note on radio buttons**: testids are added inline on each `<input type="radio">` element keyed to the option value. The `RADIO_OPTIONS.map()` in `SubmitFeedbackModal` needs to inject a derived testid per iteration.
+
+---
+
+### AC-5.2.3 — All modals have `role="dialog"` and `aria-labelledby`
+
+**Status**: ✅ **Already satisfied in all 4 modals** — confirmed on pre-flight read.
+
+| Modal | `role="dialog"` | `aria-labelledby` |
+|---|---|---|
+| `SubmitFeedbackModal` | ✅ | ✅ `sfm-title` |
+| `NewActionItemModal` | ✅ | ✅ `nam-title` |
+| `ConvertActionModal` | ✅ | ✅ `cam-title` |
+| `VerifyImpactModal` | ✅ | ✅ `vim-title` |
+
+**No code changes needed** for AC-5.2.3. EH-7 through EH-10 confirm these attributes by querying `role="dialog"` via `getByRole`.
+
+---
+
+### AC-5.2.4 — Modals trap focus (Tab stays within modal)
+
+**Status**: ❌ **Missing in all 4 modals** — no `useEffect` keyboard listener present.
+
+**Specification — focus trap pattern** (identical implementation in all 4 modals):
+
+```tsx
+// Add useRef import alongside useState
+import { useState, useRef, useEffect } from 'react'
+
+// Inside component, add ref for modal container:
+const modalRef = useRef<HTMLDivElement>(null)
+
+// Add useEffect for focus trap (after existing state declarations):
+useEffect(() => {
+  if (!open) return
+  const modal = modalRef.current
+  if (!modal) return
+  const focusable = modal.querySelectorAll<HTMLElement>(
+    'button, [href], input, select, textarea, [tabindex]:not([tabindex="-1"])'
+  )
+  const first = focusable[0]
+  const last = focusable[focusable.length - 1]
+  function handleKeyDown(e: KeyboardEvent) {
+    if (e.key !== 'Tab') return
+    if (e.shiftKey) {
+      if (document.activeElement === first) { e.preventDefault(); last.focus() }
+    } else {
+      if (document.activeElement === last) { e.preventDefault(); first.focus() }
+    }
+  }
+  modal.addEventListener('keydown', handleKeyDown)
+  first?.focus()
+  return () => modal.removeEventListener('keydown', handleKeyDown)
+}, [open])
+```
+
+**Attach `ref` to modal container div** (the inner `<div role="dialog">`):
+```tsx
+<div ref={modalRef} role="dialog" ...>
+```
+
+**Business rules**:
+- `useEffect` dependency: `[open]` — runs when modal opens or closes
+- Early return when `!open` prevents listener attachment before modal mounts
+- `first?.focus()` on open moves focus into modal automatically
+- `VerifyImpactModal`: dependency array is `[open]` not `[open, item]` — `item` is always set when `open` is true
+
+---
+
+### AC-5.2.5 — Closing modal returns focus to opener element
+
+**Status**: ❌ **Missing in all 4 modals** — no trigger ref pattern present.
+
+**Specification — return focus pattern** (identical in all 4 modals):
+
+```tsx
+// Add triggerRef alongside modalRef:
+const triggerRef = useRef<HTMLElement | null>(null)
+
+// Capture opener on open (add useEffect for this separately):
+useEffect(() => {
+  if (open) {
+    triggerRef.current = document.activeElement as HTMLElement
+  }
+}, [open])
+
+// In handleClose(), after onClose() call, add:
+triggerRef.current?.focus()
+```
+
+**Business rules**:
+- `triggerRef` captures `document.activeElement` the moment `open` becomes `true` — this is the button that triggered the modal open
+- `triggerRef.current?.focus()` is called in `handleClose()` before the function returns
+- For `VerifyImpactModal`, `handleClose` also calls `onClose()` — `focus()` must be called after `onClose()`
+- This is a separate `useEffect` from the focus trap — do NOT combine them
+
+---
+
+## Sprint 5 UI Element Map & data-testid Master List
+
+### New `data-testid` values added in Sprint 5
+
+| `data-testid` | Element | File | AC |
+|---|---|---|---|
+| `"load-error"` | Error banner `<div>` | `dashboard/page.tsx`, `feedback/page.tsx` | AC-5.1.1 |
+| `"dashboard-empty-state"` | No-sprint empty state wrapper | `dashboard/page.tsx` | AC-5.1.2 |
+| `"dashboard-setup-btn"` | "Set Up Sprint →" button | `dashboard/page.tsx` | AC-5.2.1 |
+| `"feedback-empty-state"` | No-sprint empty state | `feedback/page.tsx` | AC-5.1.2 |
+| `"actions-empty-state"` | No-actions empty state wrapper | `actions/page.tsx` | AC-5.1.2 |
+| `"actions-goto-feedback-btn"` | "Go to Feedback Board" (empty state) | `actions/page.tsx` | AC-5.2.1 |
+| `"actions-empty-new-btn"` | "New Action Item" (empty state) | `actions/page.tsx` | AC-5.2.1 |
+| `"nam-close-btn"` | Close × | `NewActionItemModal.tsx` | AC-5.2.1 |
+| `"nam-cancel-btn"` | Cancel | `NewActionItemModal.tsx` | AC-5.2.1 |
+| `"nam-title-input"` | Title input | `NewActionItemModal.tsx` | AC-5.2.2 |
+| `"nam-description"` | Description textarea | `NewActionItemModal.tsx` | AC-5.2.2 |
+| `"nam-owner"` | Owner select | `NewActionItemModal.tsx` | AC-5.2.2 |
+| `"nam-due-date"` | Due date input | `NewActionItemModal.tsx` | AC-5.2.2 |
+| `"cam-close-btn"` | Close × | `ConvertActionModal.tsx` | AC-5.2.1 |
+| `"cam-cancel-btn"` | Cancel | `ConvertActionModal.tsx` | AC-5.2.1 |
+| `"cam-title-input"` | Title input | `ConvertActionModal.tsx` | AC-5.2.2 |
+| `"cam-description"` | Description textarea | `ConvertActionModal.tsx` | AC-5.2.2 |
+| `"cam-owner"` | Owner select | `ConvertActionModal.tsx` | AC-5.2.2 |
+| `"cam-due-date"` | Due date input | `ConvertActionModal.tsx` | AC-5.2.2 |
+| `"vim-close-btn"` | Close × | `VerifyImpactModal.tsx` | AC-5.2.1 |
+| `"vim-cancel-btn"` | Cancel | `VerifyImpactModal.tsx` | AC-5.2.1 |
+| `"vim-impact"` | Impact statement textarea | `VerifyImpactModal.tsx` | AC-5.2.2 |
+| `"sfm-cancel-btn"` | Cancel | `SubmitFeedbackModal.tsx` | AC-5.2.1 |
+| `"sfm-content"` | Content textarea | `SubmitFeedbackModal.tsx` | AC-5.2.2 |
+| `"sfm-suggestion"` | Suggestion textarea | `SubmitFeedbackModal.tsx` | AC-5.2.2 |
+| `"sfm-anonymous"` | Anonymous checkbox | `SubmitFeedbackModal.tsx` | AC-5.2.2 |
+| `"sfm-category-slowed"` | Slowed Us Down radio | `SubmitFeedbackModal.tsx` | AC-5.2.2 |
+| `"sfm-category-try"` | Should Try radio | `SubmitFeedbackModal.tsx` | AC-5.2.2 |
+| `"sfm-category-well"` | Went Well radio | `SubmitFeedbackModal.tsx` | AC-5.2.2 |
+
+---
+
+## Sprint 5 Business Rules
+
+| Rule | Description |
+|---|---|
+| BR-5.1 | Error message text is exactly: `"Something went wrong. Please try again."` — no variation |
+| BR-5.2 | Error state renders inside `<Shell>` wrapper — never a blank page |
+| BR-5.3 | `isLoading` is set to `false` in `finally` regardless of success or failure |
+| BR-5.4 | Auth guard pattern: `getCurrentUser() → null → router.push('/') → return` in `useEffect` on mount |
+| BR-5.5 | All 4 auth guards already exist — no new guards needed in Sprint 5 |
+| BR-5.6 | All 9 API routes already have try/catch + 500 — no route changes in Sprint 5 |
+| BR-5.7 | Focus trap: Tab cycles within modal; Shift+Tab cycles backward; Escape handled by overlay click or close button |
+| BR-5.8 | Return focus: `triggerRef.current?.focus()` called inside `handleClose()` |
+| BR-5.9 | `data-testid` naming pattern for buttons: `[component-prefix]-[action]-btn` |
+| BR-5.10 | `data-testid` naming pattern for inputs: `[component-prefix]-[field-name]` (matching existing `id` value) |
+
+---
+
+## Sprint 5 Acceptance Criteria Summary Table
+
+| AC-ID | Criterion | Status before Sprint 5 | Change required |
+|---|---|---|---|
+| AC-5.1.1 | API failure → inline error; no crash | ❌ dashboard + feedback missing error state | Add `loadError` state + catch + render branch |
+| AC-5.1.2 | Empty states render correctly | ⚠️ Partial — missing testids + feedback empty state | Add testids; add feedback empty state |
+| AC-5.1.3 | `/dashboard` redirects unauthenticated users | ✅ Already satisfied | SKIP (EH-1 is confirmation test only) |
+| AC-5.1.4 | Forms show inline validation | ✅ Submit disabled = sufficient | SKIP |
+| AC-5.1.5 | Sidebar highlights active route | ✅ Already satisfied | SKIP |
+| AC-5.2.1 | Every `<button>` has `data-testid` | ❌ 10 buttons missing | Add 10 testids across 5 files |
+| AC-5.2.2 | Every `<input>`/`<select>` has `data-testid` + `<label>` | ❌ 15 elements missing testids | Add 15 testids; labels all present ✅ |
+| AC-5.2.3 | Modals have `role="dialog"` + `aria-labelledby` | ✅ All 4 compliant | SKIP |
+| AC-5.2.4 | Modals trap focus | ❌ Missing in all 4 | Add focus trap `useEffect` to all 4 |
+| AC-5.2.5 | Close returns focus to opener | ❌ Missing in all 4 | Add `triggerRef` pattern to all 4 |
+
+---
+
+## Sprint 5 Definition of Done
+
+- [ ] `dashboard/page.tsx` has `loadError` state + error render with `data-testid="load-error"`
+- [ ] `feedback/page.tsx` has `loadError` state + catch block + error render with `data-testid="load-error"`
+- [ ] `dashboard/page.tsx` empty state has `data-testid="dashboard-empty-state"` and `data-testid="dashboard-setup-btn"`
+- [ ] `feedback/page.tsx` has `data-testid="feedback-empty-state"` for the no-sprint condition
+- [ ] `actions/page.tsx` empty state has `data-testid="actions-empty-state"`, `"actions-goto-feedback-btn"`, `"actions-empty-new-btn"`
+- [ ] All 10 missing button `data-testid` values added
+- [ ] All 15 missing input/select/textarea `data-testid` values added
+- [ ] Focus trap `useEffect` added to all 4 modals
+- [ ] Return focus `triggerRef` pattern added to all 4 modals
+- [ ] `errorHandling.test.tsx` created with EH-1 through EH-10 all passing
+- [ ] 0 new test failures (2 pre-existing `getCompletionRate` failures remain — expected)
+- [ ] `corepack yarn tsc --noEmit` → 0 errors
+- [ ] `corepack yarn build` → 0 errors
+- [ ] Smoke test checklist (18 steps) passes in browser
+- [ ] Committed: `git commit -m "Sprint 5 complete: Polish + Scope 2 MVP"`
+- [ ] Pushed: `git push origin main`
