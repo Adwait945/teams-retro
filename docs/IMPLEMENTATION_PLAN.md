@@ -1909,3 +1909,538 @@ Before declaring Sprint 4 complete, confirm all Definition of Done items:
 | AC-4.1.8 | All `data-testid` values present | S4-4, S4-6 | All SS tests use testids |
 | AC-4.1.9 | Loading + error states | S4-4 | SS-10 (loading resolves) |
 | AC-4.1.10 | `Promise.all` fetch strategy; `getActiveSprint` normalisation | S4-3, S4-4 | SS-1, SS-2 |
+
+---
+
+---
+
+# Sprint 5 — Implementation Plan
+
+**Goal**: Polish, Error Handling & Smoke Test (Epics 5.1 + 5.2). Single DEV session.  
+**Target**: ~200 lines surgical edits across 8 existing files + 1 new test file  
+**Prerequisite**: Sprints 1–4 complete and merged  
+**Rule**: No new components, no new API routes, no refactoring — additive edits only.
+
+---
+
+## DEV Session 1 — Polish + Hardening
+
+**Files to write/modify** (target ~200 lines total):
+
+| Task | File | Action | Target lines | AC coverage |
+|---|---|---|---|---|
+| S5-1 | `src/lib/db.ts` | **SKIP** | 0 | — |
+| S5-2 | `src/app/api/*/route.ts` (all 9) | **SKIP** | 0 | — |
+| S5-3 | `src/app/dashboard/page.tsx` | MODIFY | ~+10 | AC-5.1.1, AC-5.1.2, AC-5.2.1 |
+| S5-4 | `src/app/feedback/page.tsx` | MODIFY | ~+10 | AC-5.1.1, AC-5.1.2 |
+| S5-5 | `src/app/actions/page.tsx` | MODIFY | ~+3 | AC-5.1.2, AC-5.2.1 |
+| S5-6 | `src/app/sprint-setup/page.tsx` | **SKIP** | 0 | Sprint 4 covers auth guard + error state |
+| S5-7 | `src/components/SubmitFeedbackModal.tsx` | MODIFY | ~+25 | AC-5.2.1, AC-5.2.2, AC-5.2.4, AC-5.2.5 |
+| S5-8 | `src/components/NewActionItemModal.tsx` | MODIFY | ~+30 | AC-5.2.1, AC-5.2.2, AC-5.2.4, AC-5.2.5 |
+| S5-9 | `src/components/ConvertActionModal.tsx` | MODIFY | ~+30 | AC-5.2.1, AC-5.2.2, AC-5.2.4, AC-5.2.5 |
+| S5-10 | `src/components/VerifyImpactModal.tsx` | MODIFY | ~+25 | AC-5.2.1, AC-5.2.2, AC-5.2.4, AC-5.2.5 |
+| S5-11 | `src/__tests__/errorHandling.test.tsx` | CREATE | ~80 | AC-5.1.1–5.1.3, AC-5.1.4, AC-5.2.3 |
+
+---
+
+### Task S5-3: Modify `src/app/dashboard/page.tsx`
+
+**Target lines added**: ~+10  
+**AC**: AC-5.1.1 (error state), AC-5.1.2 (empty state testid), AC-5.2.1 (button testid)
+
+**Pre-flight confirmed facts**:
+- Auth guard ✅ lines 41–45
+- Catch block exists (line 64) but is **silent** (`// leave sprint null`)
+- Empty state block exists (lines 143–158) but missing `data-testid`
+- "Set Up Sprint →" button (line 147) missing `data-testid`
+
+**Exact changes** (in order):
+
+1. Add `loadError` state — insert after `const [isLoading, setIsLoading] = useState(true)`:
+```tsx
+const [loadError, setLoadError] = useState(false)
+```
+
+2. Replace catch body — change from:
+```tsx
+    } catch {
+      // leave sprint null — will render empty state
+    }
+```
+to:
+```tsx
+    } catch {
+      setLoadError(true)
+    }
+```
+
+3. Add error render branch — insert after `if (isLoading) { ... }` block and before `return (`:
+```tsx
+  if (loadError) {
+    return (
+      <Shell>
+        <div data-testid="load-error" className="flex items-center justify-center h-full text-red-400 text-sm">
+          Something went wrong. Please try again.
+        </div>
+      </Shell>
+    )
+  }
+```
+
+4. Add `data-testid="dashboard-empty-state"` to the outer `<div>` of the empty state (line ~143):
+```tsx
+<div data-testid="dashboard-empty-state" className="rounded-xl p-12 text-center bg-secondary/10 border-dashed border-2 border-border/50">
+```
+
+5. Add `data-testid="dashboard-setup-btn"` to the "Set Up Sprint →" button:
+```tsx
+<button
+  onClick={() => router.push("/sprint-setup")}
+  data-testid="dashboard-setup-btn"
+  className="px-6 py-2 rounded-md bg-blue-600 hover:bg-blue-700 text-white font-medium transition"
+>
+```
+
+---
+
+### Task S5-4: Modify `src/app/feedback/page.tsx`
+
+**Target lines added**: ~+10  
+**AC**: AC-5.1.1 (error state + catch), AC-5.1.2 (feedback empty state)
+
+**Pre-flight confirmed facts**:
+- Auth guard ✅ lines 41–45
+- `load()` has `} finally {` at line 69 but **no `catch` block**
+- `sprint === null` renders three empty `FeedbackColumn` components — no explicit empty state message
+- `loadError` state does not exist
+
+**Exact changes** (in order):
+
+1. Add `loadError` state — insert after `const [isLoading, setIsLoading] = useState(true)`:
+```tsx
+const [loadError, setLoadError] = useState(false)
+```
+
+2. Add `catch` block — change `} finally {` in `load()` from:
+```tsx
+      } finally {
+        setIsLoading(false)
+      }
+```
+to:
+```tsx
+      } catch {
+        setLoadError(true)
+      } finally {
+        setIsLoading(false)
+      }
+```
+
+3. Add error render branch — insert after the `if (isLoading)` block, before `return (`:
+```tsx
+  if (loadError) {
+    return (
+      <Shell sprintName="">
+        <div data-testid="load-error" className="flex items-center justify-center h-full text-red-400 text-sm">
+          Something went wrong. Please try again.
+        </div>
+      </Shell>
+    )
+  }
+```
+
+4. Add feedback empty state — inside the `return (...)`, in the three-column grid section, add a conditional render when `sprint === null` above the columns grid:
+```tsx
+{!sprint && (
+  <div
+    data-testid="feedback-empty-state"
+    className="flex-1 flex items-center justify-center text-sm text-muted-foreground"
+  >
+    No active sprint. Set one up to begin.
+  </div>
+)}
+```
+
+> **Placement**: Insert inside the main content `<div>`, between the header row and the `<div className="flex-1 grid grid-cols-3...">`. The three-column grid can remain — it will render empty columns alongside the message or be conditionally shown only when sprint is not null. Either approach is valid; the key requirement is that `data-testid="feedback-empty-state"` is present in the DOM when `sprint === null`.
+
+---
+
+### Task S5-5: Modify `src/app/actions/page.tsx`
+
+**Target lines added**: ~+3  
+**AC**: AC-5.1.2 (empty state testid), AC-5.2.1 (button testids)
+
+**Pre-flight confirmed facts**:
+- Error state ✅ present (`setError`, render branch lines 134–142)
+- Auth guard ✅ present
+- Empty state `<div>` at line 186 — missing `data-testid`
+- "Go to Feedback Board" button (line 194) — missing `data-testid`
+- "New Action Item" (empty state, line 200) — missing `data-testid`
+
+**Exact changes** (3 additions, no logic changes):
+
+1. `data-testid="actions-empty-state"` on outer empty state `<div>` (line 186):
+```tsx
+<div data-testid="actions-empty-state" className="flex-1 flex flex-col items-center justify-center text-center gap-4">
+```
+
+2. `data-testid="actions-goto-feedback-btn"` on "Go to Feedback Board" button (line 195):
+```tsx
+<button
+  onClick={() => router.push('/feedback')}
+  data-testid="actions-goto-feedback-btn"
+  className="px-4 py-2 rounded-md border border-border/50 text-sm font-medium hover:bg-secondary/50 transition-colors"
+>
+```
+
+3. `data-testid="actions-empty-new-btn"` on empty-state "New Action Item" button (line 200):
+```tsx
+<button
+  onClick={() => setShowNewModal(true)}
+  data-testid="actions-empty-new-btn"
+  className="flex items-center gap-2 bg-primary text-primary-foreground hover:bg-primary/90 font-medium px-4 py-2 rounded-md text-sm transition-colors"
+>
+```
+
+---
+
+### Task S5-7: Modify `src/components/SubmitFeedbackModal.tsx`
+
+**Target lines added**: ~+25  
+**AC**: AC-5.2.1 (cancel btn testid), AC-5.2.2 (input testids + radio testids), AC-5.2.4 (focus trap), AC-5.2.5 (return focus)
+
+**Pre-flight confirmed facts**:
+- `role="dialog"`, `aria-labelledby="sfm-title"`, `data-testid="submit-feedback-modal"` ✅
+- `modal-close-btn` ✅, `modal-submit-btn` ✅
+- `import { useState }` only — needs `useRef`, `useEffect` added
+- Cancel button (line 170) — no `data-testid`
+- `sfm-content` textarea — no `data-testid`
+- `sfm-suggestion` textarea — no `data-testid`
+- Anonymous checkbox — no `data-testid`
+- Radio inputs (3×) — no `data-testid`; generated via `RADIO_OPTIONS.map()`
+
+**Exact changes** (in order):
+
+1. Update import:
+```tsx
+import { useState, useRef, useEffect } from 'react'
+```
+
+2. Add refs inside component (after state declarations):
+```tsx
+const modalRef = useRef<HTMLDivElement>(null)
+const triggerRef = useRef<HTMLElement | null>(null)
+```
+
+3. Add `triggerRef` capture `useEffect`:
+```tsx
+useEffect(() => {
+  if (open) {
+    triggerRef.current = document.activeElement as HTMLElement
+  }
+}, [open])
+```
+
+4. Add focus trap `useEffect`:
+```tsx
+useEffect(() => {
+  if (!open) return
+  const modal = modalRef.current
+  if (!modal) return
+  const focusable = modal.querySelectorAll<HTMLElement>(
+    'button, [href], input, select, textarea, [tabindex]:not([tabindex="-1"])'
+  )
+  const first = focusable[0]
+  const last = focusable[focusable.length - 1]
+  function handleKeyDown(e: KeyboardEvent) {
+    if (e.key !== 'Tab') return
+    if (e.shiftKey) {
+      if (document.activeElement === first) { e.preventDefault(); last.focus() }
+    } else {
+      if (document.activeElement === last) { e.preventDefault(); first.focus() }
+    }
+  }
+  modal.addEventListener('keydown', handleKeyDown)
+  first?.focus()
+  return () => modal.removeEventListener('keydown', handleKeyDown)
+}, [open])
+```
+
+5. Add `triggerRef.current?.focus()` to `handleClose()` — append after `onClose()`:
+```tsx
+function handleClose() {
+  setCategory('went-well')
+  setContent('')
+  setSuggestion('')
+  setIsAnonymous(false)
+  setIsSubmitting(false)
+  onClose()
+  triggerRef.current?.focus()
+}
+```
+
+6. Add `ref={modalRef}` to inner dialog div:
+```tsx
+<div
+  ref={modalRef}
+  role="dialog"
+  aria-modal="true"
+  aria-labelledby="sfm-title"
+  data-testid="submit-feedback-modal"
+  ...
+>
+```
+
+7. Add `data-testid="sfm-cancel-btn"` to Cancel button (line ~170):
+```tsx
+<button
+  type="button"
+  onClick={handleClose}
+  data-testid="sfm-cancel-btn"
+  className="..."
+>
+```
+
+8. Add `data-testid="sfm-content"` to content textarea.
+
+9. Add `data-testid="sfm-suggestion"` to suggestion textarea.
+
+10. Add `data-testid="sfm-anonymous"` to anonymous checkbox.
+
+11. Add per-option `data-testid` to radio inputs via `RADIO_OPTIONS.map()`:
+```tsx
+const TESTID_MAP: Record<FeedbackCategory, string> = {
+  'slowed-us-down': 'sfm-category-slowed',
+  'should-try':     'sfm-category-try',
+  'went-well':      'sfm-category-well',
+}
+// In the map callback:
+<input
+  type="radio"
+  name="category"
+  value={opt.value}
+  checked={selected}
+  onChange={() => setCategory(opt.value)}
+  data-testid={TESTID_MAP[opt.value]}
+  className="accent-primary"
+/>
+```
+
+> `TESTID_MAP` is declared as a `const` outside the component function (after `RADIO_OPTIONS`).
+
+---
+
+### Task S5-8: Modify `src/components/NewActionItemModal.tsx`
+
+**Target lines added**: ~+30  
+**AC**: AC-5.2.1, AC-5.2.2, AC-5.2.4, AC-5.2.5
+
+**Pre-flight confirmed facts**:
+- `role="dialog"`, `aria-labelledby="nam-title"`, `data-testid="new-action-modal"` ✅
+- `new-action-submit-btn` ✅
+- Close × button (line 82) — no `data-testid`
+- Cancel button (line 157) — no `data-testid`
+- All 4 inputs/select/textarea — no `data-testid`
+- `import { useState }` only
+
+**Exact changes** (same pattern as S5-7):
+
+1. Update import: `import { useState, useRef, useEffect } from 'react'`
+
+2. Add `modalRef` and `triggerRef` refs.
+
+3. Add triggerRef capture `useEffect` with `[open]`.
+
+4. Add focus trap `useEffect` with `[open]`.
+
+5. Add `triggerRef.current?.focus()` to `handleClose()` after `onClose()`.
+
+6. Add `ref={modalRef}` to inner `<div role="dialog">`.
+
+7. Add `data-testid="nam-close-btn"` to close × button (line 82).
+
+8. Add `data-testid="nam-cancel-btn"` to Cancel button (line 157).
+
+9. Add `data-testid="nam-title-input"` to title `<input>`.
+
+10. Add `data-testid="nam-description"` to description `<textarea>`.
+
+11. Add `data-testid="nam-owner"` to owner `<select>`.
+
+12. Add `data-testid="nam-due-date"` to due date `<input>`.
+
+---
+
+### Task S5-9: Modify `src/components/ConvertActionModal.tsx`
+
+**Target lines added**: ~+30  
+**AC**: AC-5.2.1, AC-5.2.2, AC-5.2.4, AC-5.2.5
+
+**Pre-flight confirmed facts**:
+- `role="dialog"`, `aria-labelledby="cam-title"`, `data-testid="convert-action-modal"` ✅
+- `convert-action-submit-btn` ✅
+- Close × button (line 90) — no `data-testid`
+- Cancel button (line 171) — no `data-testid`
+- All 4 inputs/select/textarea — no `data-testid`
+- `import { useState, useEffect }` — needs `useRef` added
+
+**Exact changes** (same pattern as S5-8):
+
+1. Update import: `import { useState, useEffect, useRef } from 'react'`
+
+2. Add `modalRef` and `triggerRef` refs.
+
+3. Add triggerRef capture `useEffect` with `[open]`.
+
+4. Add focus trap `useEffect` with `[open]`.
+
+   > **Note**: `ConvertActionModal` already has a `useEffect([feedbackItem])` for pre-filling title. The new `useEffect([open])` blocks are separate — do NOT merge with the existing one.
+
+5. Add `triggerRef.current?.focus()` to `handleClose()` after `onClose()`.
+
+6. Add `ref={modalRef}` to inner `<div role="dialog">`.
+
+7. Add `data-testid="cam-close-btn"` to close × button (line 90).
+
+8. Add `data-testid="cam-cancel-btn"` to Cancel button (line 171).
+
+9. Add `data-testid="cam-title-input"` to title `<input>`.
+
+10. Add `data-testid="cam-description"` to description `<textarea>`.
+
+11. Add `data-testid="cam-owner"` to owner `<select>`.
+
+12. Add `data-testid="cam-due-date"` to due date `<input>`.
+
+---
+
+### Task S5-10: Modify `src/components/VerifyImpactModal.tsx`
+
+**Target lines added**: ~+25  
+**AC**: AC-5.2.1, AC-5.2.2, AC-5.2.4, AC-5.2.5
+
+**Pre-flight confirmed facts**:
+- `role="dialog"`, `aria-labelledby="vim-title"`, `data-testid="verify-impact-modal"` ✅
+- `verify-impact-submit-btn` ✅
+- Close × button (line 64) — no `data-testid`
+- Cancel button (line 107) — no `data-testid`
+- Impact textarea (line 94) — no `data-testid`
+- `import { useState }` only
+
+**Exact changes** (same pattern as S5-7, fewer inputs):
+
+1. Update import: `import { useState, useRef, useEffect } from 'react'`
+
+2. Add `modalRef` and `triggerRef` refs.
+
+3. Add triggerRef capture `useEffect` with `[open]`.
+
+4. Add focus trap `useEffect` with `[open]`.
+
+5. Add `triggerRef.current?.focus()` to `handleClose()` after `onClose()`.
+
+6. Add `ref={modalRef}` to inner `<div role="dialog">`.
+
+7. Add `data-testid="vim-close-btn"` to close × button (line 64).
+
+8. Add `data-testid="vim-cancel-btn"` to Cancel button (line 107).
+
+9. Add `data-testid="vim-impact"` to impact `<textarea>` (line 94).
+
+---
+
+### Task S5-11: Create `src/__tests__/errorHandling.test.tsx`
+
+**Target lines**: ~80  
+**AC**: AC-5.1.1, AC-5.1.2, AC-5.1.3, AC-5.1.4, AC-5.2.3
+
+See TEST_PLAN.md Sprint 5 section for full test specs (EH-1 through EH-10).
+
+**Mock setup template**:
+```tsx
+// @jest-environment jsdom (default)
+import React from 'react'
+import { render, screen, waitFor } from '@testing-library/react'
+import { fireEvent } from '@testing-library/react'
+
+const mockPush = jest.fn()
+jest.mock('next/navigation', () => ({
+  useRouter: () => ({ push: mockPush }),
+  usePathname: () => '/dashboard',
+}))
+jest.mock('@/services/userService', () => ({
+  getCurrentUser: jest.fn(),
+}))
+jest.mock('@/services/actionService', () => ({
+  getActions: jest.fn(),
+  getCompletionRate: jest.fn(() => 0),
+  getOpenCount: jest.fn(() => 0),
+  getCompletedCount: jest.fn(() => 0),
+  getActionsByStatus: jest.fn((items) => items),
+}))
+jest.mock('@/services/feedbackService', () => ({
+  getFeedbackByLane: jest.fn().mockResolvedValue([]),
+  sortByUpvotes: jest.fn((items) => items),
+  addFeedback: jest.fn(),
+  upvoteFeedback: jest.fn(),
+  getAuthorDisplay: jest.fn(() => 'Jane'),
+}))
+jest.mock('@/components/layout/Shell', () => ({
+  __esModule: true,
+  default: ({ children }: { children: React.ReactNode }) => (
+    <div data-testid="shell">{children}</div>
+  ),
+}))
+
+import { getCurrentUser } from '@/services/userService'
+import { getActions } from '@/services/actionService'
+
+const mockUser = {
+  _id: 'u1', name: 'Jane Doe', username: 'janedoe',
+  pod: 'Pod 1', isAdmin: true, avatar: '',
+  totalPoints: 0, badges: [], createdAt: '',
+}
+
+beforeEach(() => {
+  jest.clearAllMocks()
+  mockPush.mockReset()
+  ;(global.fetch as jest.Mock) = jest.fn()
+  ;(getCurrentUser as jest.Mock).mockReturnValue(mockUser)
+})
+```
+
+---
+
+### Session 1 Completion Gate
+
+Before declaring Sprint 5 complete, confirm all Definition of Done items:
+
+- [ ] `corepack yarn tsc --noEmit` → 0 errors
+- [ ] `corepack yarn test` → 0 new failures (EH-1–EH-10 all pass; 2 pre-existing `getCompletionRate` failures remain)
+- [ ] Dashboard: disconnect network → visit `/dashboard` → `data-testid="load-error"` visible
+- [ ] Dashboard: no sprint in DB → `data-testid="dashboard-empty-state"` visible
+- [ ] Feedback: no sprint → `data-testid="feedback-empty-state"` visible
+- [ ] Actions: no actions → `data-testid="actions-empty-state"` visible
+- [ ] All modals: Tab key cycles within modal, does not escape to page
+- [ ] All modals: press Escape or × → focus returns to opener button
+- [ ] Smoke test (18 steps) passes end-to-end in browser
+- [ ] `corepack yarn build` → 0 errors
+- [ ] `git commit -m "Sprint 5 complete: Polish + Scope 2 MVP"`
+- [ ] `git push origin main`
+
+---
+
+## Sprint 5 Acceptance Criteria Traceability Matrix
+
+| AC-ID | Criterion Summary | Task(s) | Test Coverage |
+|---|---|---|---|
+| AC-5.1.1 | API failure → inline error; no crash | S5-3, S5-4 | EH-2, EH-3 |
+| AC-5.1.2 | Empty states render correctly | S5-3, S5-4, S5-5 | EH-4, EH-5 |
+| AC-5.1.3 | `/dashboard` redirects unauthenticated users | SKIP (already exists) | EH-1 |
+| AC-5.1.4 | Forms show inline validation | SKIP (submit disabled ✅) | EH-6 |
+| AC-5.1.5 | Sidebar highlights active route | SKIP (Shell.tsx ✅) | Pre-existing Shell tests |
+| AC-5.2.1 | Every `<button>` has `data-testid` | S5-3, S5-5, S5-7, S5-8, S5-9, S5-10 | Tests use testids throughout |
+| AC-5.2.2 | Every `<input>`/`<select>` has `data-testid` | S5-7, S5-8, S5-9, S5-10 | Tests use testids throughout |
+| AC-5.2.3 | Modals have `role="dialog"` + `aria-labelledby` | SKIP (all 4 compliant ✅) | EH-7, EH-8, EH-9, EH-10 |
+| AC-5.2.4 | Focus trap in all modals | S5-7, S5-8, S5-9, S5-10 | Gap S5-1 (manual only) |
+| AC-5.2.5 | Close returns focus to opener | S5-7, S5-8, S5-9, S5-10 | Gap S5-1 (manual only) |

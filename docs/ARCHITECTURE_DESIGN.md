@@ -1988,3 +1988,161 @@ The `Shell.tsx` sidebar must be updated to include a **Sprint Setup** nav item a
 | Sprint model: all fields present | ✅ READ-ONLY |
 | `userService.getAllUsers()` reused from page — no duplication | ✅ |
 | `console.error` pre-existing in `sprints/route.ts` — out of scope | ✅ Not flagged |
+
+---
+
+---
+
+# Sprint 5 — Architecture Design
+
+**Mode**: [ARCHITECT]  
+**Date**: April 2026  
+**Theme**: Polish, Error Handling & Smoke Test  
+**Rule**: No new components, no new API routes, no new state patterns. All changes are surgical edits to existing files — additive only.
+
+---
+
+## Pre-Flight Audit (per-file SKIP/MODIFY)
+
+| File | Verdict | Reason |
+|---|---|---|
+| `src/lib/db.ts` | **SKIP** | Already throws on missing `MONGODB_URI`. `mongoose.connect` errors propagate naturally to callers. No structured throw needed beyond what exists. |
+| `src/app/api/*/route.ts` (all 9) | **SKIP** | All have `try/catch` with `void err` or `console.error` + 500 JSON response. Coverage is complete and consistent. |
+| `src/app/dashboard/page.tsx` | **MODIFY** | Auth guard ✅ present. Error state ❌ missing — catch is silent. Empty state ⚠️ missing `data-testid`. Setup button ⚠️ missing `data-testid`. |
+| `src/app/feedback/page.tsx` | **MODIFY** | Auth guard ✅ present. Error state ❌ missing — no `catch` block in `load()`. Empty state ❌ missing for `sprint === null`. |
+| `src/app/actions/page.tsx` | **MODIFY** | Auth guard ✅. Error state ✅ (`setError`). Empty state ⚠️ missing 3 `data-testid` values. |
+| `src/app/sprint-setup/page.tsx` | **SKIP** | Planned in Sprint 4 with auth guard + error state. Sprint 5 adds no changes. |
+| `src/components/SubmitFeedbackModal.tsx` | **MODIFY** | `role="dialog"` ✅, `aria-labelledby` ✅, `data-testid` on container ✅, submit disabled ✅, close btn testid ✅. Missing: focus trap, return focus, 6 input testids, 1 cancel btn testid. |
+| `src/components/NewActionItemModal.tsx` | **MODIFY** | `role="dialog"` ✅, `aria-labelledby` ✅, `data-testid` on container ✅, submit disabled ✅. Missing: focus trap, return focus, close btn testid, cancel btn testid, 4 input testids. |
+| `src/components/ConvertActionModal.tsx` | **MODIFY** | Same as `NewActionItemModal`. Missing: focus trap, return focus, close btn testid, cancel btn testid, 4 input testids. |
+| `src/components/VerifyImpactModal.tsx` | **MODIFY** | `role="dialog"` ✅, `aria-labelledby` ✅, `data-testid` on container ✅, submit disabled ✅. Missing: focus trap, return focus, close btn testid, cancel btn testid, 1 textarea testid. |
+| `src/__tests__/errorHandling.test.tsx` | **CREATE** | Does not exist. New file covering EH-1 through EH-10. |
+
+---
+
+## Component Boundary Diagram (Sprint 5 — changes only)
+
+```
+Pages (MODIFY)                     Components (MODIFY)
+─────────────────────────          ─────────────────────────────────────
+dashboard/page.tsx                 SubmitFeedbackModal.tsx
+  + loadError state                  + modalRef (focus trap)
+  + catch → setLoadError(true)       + triggerRef (return focus)
+  + data-testid="load-error"         + useEffect [open] → focus trap
+  + data-testid="dashboard-          + useEffect [open] → capture trigger
+      empty-state"                   + 6 data-testid on inputs/textareas
+  + data-testid="dashboard-          + data-testid="sfm-cancel-btn"
+      setup-btn"
+                                   NewActionItemModal.tsx
+feedback/page.tsx                    + modalRef, triggerRef
+  + loadError state                  + focus trap useEffect
+  + catch → setLoadError(true)       + return focus useEffect
+  + data-testid="load-error"         + data-testid="nam-close-btn"
+  + data-testid="feedback-           + data-testid="nam-cancel-btn"
+      empty-state"                   + 4 data-testid on inputs
+
+actions/page.tsx                   ConvertActionModal.tsx
+  + data-testid="actions-            + same pattern as NewActionItemModal
+      empty-state"
+  + data-testid="actions-          VerifyImpactModal.tsx
+      goto-feedback-btn"             + modalRef, triggerRef
+  + data-testid="actions-            + focus trap useEffect
+      empty-new-btn"                 + return focus useEffect
+                                     + data-testid="vim-close-btn"
+                                     + data-testid="vim-cancel-btn"
+                                     + data-testid="vim-impact"
+
+New Test File
+─────────────────────────
+src/__tests__/errorHandling.test.tsx
+  EH-1 through EH-10
+```
+
+---
+
+## Data Flow — Error Handling (Sprint 5 additions)
+
+```
+load() in dashboard/page.tsx
+  try {
+    fetch('/api/sprints') ──→ may throw (network) or return !ok
+    getActions()          ──→ may throw
+  } catch {
+    setLoadError(true)    ←─ NEW
+  } finally {
+    setIsLoading(false)
+  }
+
+Render:
+  isLoading → Loading spinner
+  loadError → <div data-testid="load-error">  ←─ NEW
+  sprint === null → <div data-testid="dashboard-empty-state">  ←─ testid NEW
+  sprint !== null → full dashboard
+
+(feedback/page.tsx follows identical pattern)
+```
+
+---
+
+## Focus Trap Architecture
+
+All 4 modals receive an **identical** `useEffect` pattern. No shared utility hook — inline per component to keep isolation clean and avoid creating new abstractions.
+
+```
+Modal open event
+  ↓
+useEffect([open]) fires
+  ↓
+querySelectorAll(focusable selector)
+  → captures [first, last] focusable elements
+  ↓
+addEventListener('keydown', handleKeyDown)
+  → Tab on last → focus first
+  → Shift+Tab on first → focus last
+  ↓
+first.focus() — initial focus moves into modal
+  ↓
+Modal close event (handleClose called)
+  ↓
+removeEventListener (returned from useEffect cleanup)
+  ↓
+triggerRef.current?.focus() — focus returns to opener
+```
+
+**Why no shared hook**: Sprint 5 is additive-only; creating a new `useFocusTrap` hook would introduce a new abstraction beyond the AC scope. Inline pattern is minimal, readable, and testable.
+
+---
+
+## Isolation Constraints (Sprint 5)
+
+| Constraint | Rule |
+|---|---|
+| API routes | READ-ONLY — no changes |
+| `src/lib/db.ts` | READ-ONLY — no changes |
+| `src/services/*` | READ-ONLY — no changes |
+| `src/types/index.ts` | READ-ONLY — no changes |
+| `src/lib/models/*` | READ-ONLY — no changes |
+| `Shell.tsx` | READ-ONLY — Sprint 4 already added Sprint Setup nav |
+| `src/components/ActionItemCard.tsx` | READ-ONLY — no interactive elements missing testids |
+| `src/components/FeedbackColumn.tsx` | READ-ONLY — no interactive elements missing testids |
+| `src/components/FeedbackCard.tsx` | READ-ONLY — no interactive elements missing testids |
+| Sprint 1–4 test files | READ-ONLY — never modify existing tests |
+| `src/app/sprint-setup/page.tsx` | READ-ONLY (Sprint 4 builds it) |
+
+---
+
+## Architecture Summary — Sprint 5
+
+| Dimension | Decision |
+|---|---|
+| New files | 1 (`errorHandling.test.tsx`) |
+| Modified files | 7 (`dashboard`, `feedback`, `actions` pages + 4 modals) |
+| New components | 0 |
+| New API routes | 0 |
+| New services | 0 |
+| New shared hooks | 0 |
+| New types | 0 |
+| Pattern introduced | Focus trap + return focus (inline `useEffect`, 4× reused) |
+| Error state pattern | Same as `actions/page.tsx` — `loadError` state + early return render |
+| Auth guard pattern | Same as existing 3 pages — no changes needed |
+| Regression risk | Low — additive only; no logic refactoring |
