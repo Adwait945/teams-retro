@@ -1,6 +1,6 @@
 "use client"
 
-import { useState } from 'react'
+import { useState, useRef, useEffect } from 'react'
 import { X } from 'lucide-react'
 import type { FeedbackCategory } from '@/types'
 
@@ -22,12 +22,49 @@ const RADIO_OPTIONS: { value: FeedbackCategory; label: string; colorClass: strin
   { value: 'went-well',      label: '✅ What Went Well?',       colorClass: 'text-emerald-500 font-medium' },
 ]
 
+const TESTID_MAP: Record<FeedbackCategory, string> = {
+  'slowed-us-down': 'sfm-category-slowed',
+  'should-try':     'sfm-category-try',
+  'went-well':      'sfm-category-well',
+}
+
 export default function SubmitFeedbackModal({ open, onClose, onSubmit }: SubmitFeedbackModalProps) {
   const [category, setCategory]         = useState<FeedbackCategory>('went-well')
   const [content, setContent]           = useState('')
   const [suggestion, setSuggestion]     = useState('')
   const [isAnonymous, setIsAnonymous]   = useState(false)
   const [isSubmitting, setIsSubmitting] = useState(false)
+
+  const modalRef = useRef<HTMLDivElement>(null)
+  const triggerRef = useRef<HTMLElement | null>(null)
+
+  useEffect(() => {
+    if (open) {
+      triggerRef.current = document.activeElement as HTMLElement
+    }
+  }, [open])
+
+  useEffect(() => {
+    if (!open) return
+    const modal = modalRef.current
+    if (!modal) return
+    const focusable = modal.querySelectorAll<HTMLElement>(
+      'button, [href], input, select, textarea, [tabindex]:not([tabindex="-1"])'
+    )
+    const first = focusable[0]
+    const last = focusable[focusable.length - 1]
+    function handleKeyDown(e: KeyboardEvent) {
+      if (e.key !== 'Tab') return
+      if (e.shiftKey) {
+        if (document.activeElement === first) { e.preventDefault(); last.focus() }
+      } else {
+        if (document.activeElement === last) { e.preventDefault(); first.focus() }
+      }
+    }
+    modal.addEventListener('keydown', handleKeyDown)
+    first?.focus()
+    return () => modal.removeEventListener('keydown', handleKeyDown)
+  }, [open])
 
   if (!open) return null
 
@@ -41,6 +78,7 @@ export default function SubmitFeedbackModal({ open, onClose, onSubmit }: SubmitF
     setIsAnonymous(false)
     setIsSubmitting(false)
     onClose()
+    triggerRef.current?.focus()
   }
 
   async function handleSubmit(e: React.FormEvent) {
@@ -60,6 +98,7 @@ export default function SubmitFeedbackModal({ open, onClose, onSubmit }: SubmitF
       onClick={(e) => { if (e.target === e.currentTarget) handleClose() }}
     >
       <div
+        ref={modalRef}
         role="dialog"
         aria-modal="true"
         aria-labelledby="sfm-title"
@@ -108,6 +147,7 @@ export default function SubmitFeedbackModal({ open, onClose, onSubmit }: SubmitF
                       value={opt.value}
                       checked={selected}
                       onChange={() => setCategory(opt.value)}
+                      data-testid={TESTID_MAP[opt.value]}
                       className="accent-primary"
                     />
                     <span className={opt.colorClass}>{opt.label}</span>
@@ -124,6 +164,7 @@ export default function SubmitFeedbackModal({ open, onClose, onSubmit }: SubmitF
             </label>
             <textarea
               id="sfm-content"
+              data-testid="sfm-content"
               value={content}
               onChange={(e) => setContent(e.target.value)}
               placeholder="What happened?"
@@ -145,6 +186,7 @@ export default function SubmitFeedbackModal({ open, onClose, onSubmit }: SubmitF
               </div>
               <textarea
                 id="sfm-suggestion"
+                data-testid="sfm-suggestion"
                 value={suggestion}
                 onChange={(e) => setSuggestion(e.target.value)}
                 placeholder="How could we fix or improve this?"
@@ -158,6 +200,7 @@ export default function SubmitFeedbackModal({ open, onClose, onSubmit }: SubmitF
           <label className="flex items-center gap-2 cursor-pointer">
             <input
               type="checkbox"
+              data-testid="sfm-anonymous"
               checked={isAnonymous}
               onChange={(e) => setIsAnonymous(e.target.checked)}
               className="accent-primary"
@@ -170,6 +213,7 @@ export default function SubmitFeedbackModal({ open, onClose, onSubmit }: SubmitF
             <button
               type="button"
               onClick={handleClose}
+              data-testid="sfm-cancel-btn"
               className="px-4 py-2 rounded-md border border-border/50 text-sm font-medium hover:bg-secondary/50 transition-colors"
             >
               Cancel

@@ -1,6 +1,6 @@
 "use client"
 
-import { useState, useEffect } from 'react'
+import { useState, useEffect, useRef } from 'react'
 import { X } from 'lucide-react'
 import type { FeedbackItem, User } from '@/types'
 import type { CreateActionPayload } from '@/services/actionService'
@@ -28,6 +28,37 @@ export default function ConvertActionModal({
   const [dueDate, setDueDate]         = useState('')
   const [isSubmitting, setIsSubmitting] = useState(false)
 
+  const modalRef = useRef<HTMLDivElement>(null)
+  const triggerRef = useRef<HTMLElement | null>(null)
+
+  useEffect(() => {
+    if (open) {
+      triggerRef.current = document.activeElement as HTMLElement
+    }
+  }, [open])
+
+  useEffect(() => {
+    if (!open) return
+    const modal = modalRef.current
+    if (!modal) return
+    const focusable = modal.querySelectorAll<HTMLElement>(
+      'button, [href], input, select, textarea, [tabindex]:not([tabindex="-1"])'
+    )
+    const first = focusable[0]
+    const last = focusable[focusable.length - 1]
+    function handleKeyDown(e: KeyboardEvent) {
+      if (e.key !== 'Tab') return
+      if (e.shiftKey) {
+        if (document.activeElement === first) { e.preventDefault(); last.focus() }
+      } else {
+        if (document.activeElement === last) { e.preventDefault(); first.focus() }
+      }
+    }
+    modal.addEventListener('keydown', handleKeyDown)
+    first?.focus()
+    return () => modal.removeEventListener('keydown', handleKeyDown)
+  }, [open])
+
   useEffect(() => {
     if (feedbackItem) {
       setTitle(feedbackItem.content)
@@ -45,6 +76,7 @@ export default function ConvertActionModal({
     setDueDate('')
     setIsSubmitting(false)
     onClose()
+    triggerRef.current?.focus()
   }
 
   async function handleSubmit(e: React.FormEvent) {
@@ -72,6 +104,7 @@ export default function ConvertActionModal({
       onClick={(e) => { if (e.target === e.currentTarget) handleClose() }}
     >
       <div
+        ref={modalRef}
         role="dialog"
         aria-modal="true"
         aria-labelledby="cam-title"
@@ -89,6 +122,7 @@ export default function ConvertActionModal({
           <button
             type="button"
             onClick={handleClose}
+            data-testid="cam-close-btn"
             aria-label="Close"
             className="p-1 rounded-md text-muted-foreground hover:text-foreground hover:bg-secondary/50 transition-colors"
           >
@@ -110,6 +144,7 @@ export default function ConvertActionModal({
             </label>
             <input
               id="cam-title-input"
+              data-testid="cam-title-input"
               type="text"
               value={title}
               onChange={(e) => setTitle(e.target.value)}
@@ -125,6 +160,7 @@ export default function ConvertActionModal({
             </label>
             <textarea
               id="cam-description"
+              data-testid="cam-description"
               value={description}
               onChange={(e) => setDescription(e.target.value)}
               placeholder="Details on how to implement this..."
@@ -140,6 +176,7 @@ export default function ConvertActionModal({
             </label>
             <select
               id="cam-owner"
+              data-testid="cam-owner"
               value={ownerId}
               onChange={(e) => setOwnerId(e.target.value)}
               className="w-full rounded-lg border border-border/50 bg-secondary/50 px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-ring"
@@ -158,6 +195,7 @@ export default function ConvertActionModal({
             </label>
             <input
               id="cam-due-date"
+              data-testid="cam-due-date"
               type="date"
               value={dueDate}
               onChange={(e) => setDueDate(e.target.value)}
@@ -170,6 +208,7 @@ export default function ConvertActionModal({
             <button
               type="button"
               onClick={handleClose}
+              data-testid="cam-cancel-btn"
               className="px-4 py-2 rounded-md border border-border/50 text-sm font-medium hover:bg-secondary/50 transition-colors"
             >
               Cancel

@@ -183,7 +183,7 @@ export default function ActionsPage() {
 
         {/* Empty state */}
         {actions.length === 0 ? (
-          <div className="flex-1 flex flex-col items-center justify-center text-center gap-4">
+          <div data-testid="actions-empty-state" className="flex-1 flex flex-col items-center justify-center text-center gap-4">
             <div>
               <h2 className="text-lg font-semibold text-slate-200 mb-2">No action items yet.</h2>
               <p className="text-sm text-muted-foreground max-w-sm">
@@ -193,12 +193,14 @@ export default function ActionsPage() {
             <div className="flex items-center gap-3">
               <button
                 onClick={() => router.push('/feedback')}
+                data-testid="actions-goto-feedback-btn"
                 className="px-4 py-2 rounded-md border border-border/50 text-sm font-medium hover:bg-secondary/50 transition-colors"
               >
                 Go to Feedback Board
               </button>
               <button
                 onClick={() => setShowNewModal(true)}
+                data-testid="actions-empty-new-btn"
                 className="flex items-center gap-2 bg-primary text-primary-foreground hover:bg-primary/90 font-medium px-4 py-2 rounded-md text-sm transition-colors"
               >
                 <Plus className="w-4 h-4" />

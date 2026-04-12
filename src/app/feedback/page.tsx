@@ -25,6 +25,7 @@ export default function FeedbackPage() {
   const [convertTarget, setConvertTarget] = useState<FeedbackItem | null>(null)
   const [users, setUsers] = useState<Pick<User, '_id' | 'name'>[]>([])
   const [isLoading, setIsLoading] = useState(true)
+  const [loadError, setLoadError] = useState(false)
 
   const refetch = useCallback(async (sprintId: string) => {
     const [slowed, should, well] = await Promise.all([
@@ -66,6 +67,8 @@ export default function FeedbackPage() {
         if (activeSprint) {
           await refetch(activeSprint._id)
         }
+      } catch {
+        setLoadError(true)
       } finally {
         setIsLoading(false)
       }
@@ -119,6 +122,16 @@ export default function FeedbackPage() {
     )
   }
 
+  if (loadError) {
+    return (
+      <Shell sprintName="">
+        <div data-testid="load-error" className="flex items-center justify-center h-full text-red-400 text-sm">
+          Something went wrong. Please try again.
+        </div>
+      </Shell>
+    )
+  }
+
   return (
     <Shell sprintName={sprint?.name}>
       <div className="h-full flex flex-col animate-in fade-in slide-in-from-bottom-4 duration-500 relative z-0">
@@ -140,6 +153,15 @@ export default function FeedbackPage() {
             Submit Feedback
           </button>
         </div>
+
+        {!sprint && (
+          <div
+            data-testid="feedback-empty-state"
+            className="flex-1 flex items-center justify-center text-sm text-muted-foreground"
+          >
+            No active sprint. Set one up to begin.
+          </div>
+        )}
 
         <div className="flex-1 grid grid-cols-3 gap-6 min-h-0">
           <FeedbackColumn

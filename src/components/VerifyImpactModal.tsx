@@ -1,6 +1,6 @@
 "use client"
 
-import { useState } from 'react'
+import { useState, useRef, useEffect } from 'react'
 import { X } from 'lucide-react'
 import type { ActionItem } from '@/types'
 
@@ -20,6 +20,37 @@ export default function VerifyImpactModal({
   const [impactNote, setImpactNote]   = useState('')
   const [isSubmitting, setIsSubmitting] = useState(false)
 
+  const modalRef = useRef<HTMLDivElement>(null)
+  const triggerRef = useRef<HTMLElement | null>(null)
+
+  useEffect(() => {
+    if (open) {
+      triggerRef.current = document.activeElement as HTMLElement
+    }
+  }, [open])
+
+  useEffect(() => {
+    if (!open) return
+    const modal = modalRef.current
+    if (!modal) return
+    const focusable = modal.querySelectorAll<HTMLElement>(
+      'button, [href], input, select, textarea, [tabindex]:not([tabindex="-1"])'
+    )
+    const first = focusable[0]
+    const last = focusable[focusable.length - 1]
+    function handleKeyDown(e: KeyboardEvent) {
+      if (e.key !== 'Tab') return
+      if (e.shiftKey) {
+        if (document.activeElement === first) { e.preventDefault(); last.focus() }
+      } else {
+        if (document.activeElement === last) { e.preventDefault(); first.focus() }
+      }
+    }
+    modal.addEventListener('keydown', handleKeyDown)
+    first?.focus()
+    return () => modal.removeEventListener('keydown', handleKeyDown)
+  }, [open])
+
   if (!open || !item) return null
 
   const submitDisabled = !impactNote.trim() || impactNote.length > 300 || isSubmitting
@@ -28,6 +59,7 @@ export default function VerifyImpactModal({
     setImpactNote('')
     setIsSubmitting(false)
     onClose()
+    triggerRef.current?.focus()
   }
 
   async function handleSubmit(e: React.FormEvent) {
@@ -47,6 +79,7 @@ export default function VerifyImpactModal({
       onClick={(e) => { if (e.target === e.currentTarget) handleClose() }}
     >
       <div
+        ref={modalRef}
         role="dialog"
         aria-modal="true"
         aria-labelledby="vim-title"
@@ -64,6 +97,7 @@ export default function VerifyImpactModal({
           <button
             type="button"
             onClick={handleClose}
+            data-testid="vim-close-btn"
             aria-label="Close"
             className="p-1 rounded-md text-muted-foreground hover:text-foreground hover:bg-secondary/50 transition-colors"
           >
@@ -93,6 +127,7 @@ export default function VerifyImpactModal({
             </div>
             <textarea
               id="vim-impact"
+              data-testid="vim-impact"
               value={impactNote}
               onChange={(e) => setImpactNote(e.target.value)}
               placeholder="e.g. Deployments now take 5 minutes instead of 45…"
@@ -107,6 +142,7 @@ export default function VerifyImpactModal({
             <button
               type="button"
               onClick={handleClose}
+              data-testid="vim-cancel-btn"
               className="px-4 py-2 rounded-md border border-border/50 text-sm font-medium hover:bg-secondary/50 transition-colors"
             >
               Cancel
