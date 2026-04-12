@@ -18,13 +18,14 @@ There are **three environments** you'll work in. Every step is labeled so you al
 | 🖥️ | **Windsurf (Local)** | Your desktop IDE with Enterprise AI credits. This is the "engineering floor." All 5 AI agents run here with full power — reading files, writing code, running tests, executing terminal commands. |
 | 🐙 | **GitHub** | The bridge between Replit and Windsurf. It's a cloud-based storage locker for your code. You push code up from one environment and pull it down into the other. |
 
-> 🚫 **CRITICAL — Windows Corporate Execution Policy (applies to ALL agents)**
-> This machine blocks the following commands via PowerShell. **No agent should ever attempt these — skip them entirely and do NOT retry with alternate paths:**
-> - `npx` — blocked: "cannot be loaded because running scripts is disabled on this system"
-> - `node_modules\.bin\tsc` — blocked: "Access is denied"
-> - `node_modules\.bin\jest` — blocked: "Access is denied"
-> - `node node_modules/typescript/bin/tsc` — blocked: endpoint protection
-> - Any `.cmd` file in `node_modules/.bin/` — blocked by endpoint protection
+> 🚫 **CRITICAL — Carbon Black App Control + Windows Execution Policy (applies to ALL agents)**
+> This machine runs 7-Eleven endpoint protection (Carbon Black App Control) which blocks any unapproved binary. **No agent should ever attempt these — skip them entirely, do NOT retry, do NOT try alternate paths:**
+> - `npx` (any form) — PowerShell execution policy blocks it
+> - `node_modules\.bin\jest.cmd` — Carbon Black blocks `.cmd` wrappers
+> - `node_modules\.bin\tsc.cmd` — Carbon Black blocks `.cmd` wrappers
+> - `node node_modules/jest/bin/jest.js` — Carbon Black blocks this binary path
+> - `node node_modules/typescript/bin/tsc` — Carbon Black blocks this binary path
+> - Any file under `node_modules/.bin/` invoked directly — all `.cmd` wrappers are blocked
 >
 > **The only commands that work on this machine:**
 > - `corepack yarn test` — runs Jest (configured in package.json as `"test": "jest"`)
@@ -32,7 +33,7 @@ There are **three environments** you'll work in. Every step is labeled so you al
 > - `corepack yarn build` — production build via corepack
 > - `git` commands — always work
 >
-> If `corepack yarn test` also fails due to execution policy, **STOP. Do NOT try alternative paths.** Report the failure and wait for human input. Never loop through fallback command variants.
+> If `corepack yarn test` fails, **STOP. Report the error verbatim. Do NOT try any fallback.** Wait for human input. Never loop through command variants.
 
 ---
 
@@ -790,14 +791,14 @@ After all [ ] items are [x]:
 - Do NOT add <style> tags or inline styles — Tailwind utility classes only.
 - Fix your code to match tests, never fix tests to match your code.
 
-## ⛔ BLOCKED COMMANDS — DO NOT RUN, DO NOT RETRY
-The following are permanently blocked by Windows corporate endpoint protection on this machine.
-Do NOT attempt them. Do NOT try alternate paths like `node_modules/.bin/tsc` or `node node_modules/...`.
-Do NOT loop through fallback variants. If you hit a blocked command, stop and report.
-- `npx tsc --noEmit` → BLOCKED
-- `npx jest` → BLOCKED
-- `node_modules\.bin\tsc` → BLOCKED (Access denied)
-- `node_modules\.bin\jest` → BLOCKED (Access denied)
+## ⛔ BLOCKED COMMANDS — CARBON BLACK APP CONTROL — DO NOT RUN, DO NOT RETRY
+The following are permanently blocked by 7-Eleven Carbon Black endpoint protection.
+Do NOT attempt them. Do NOT try alternate paths. Do NOT loop through fallback variants. Stop and report.
+- `npx` (any form) → BLOCKED (PowerShell execution policy)
+- `node_modules\.bin\jest.cmd` → BLOCKED (Carbon Black)
+- `node_modules\.bin\tsc.cmd` → BLOCKED (Carbon Black)
+- `node node_modules/jest/bin/jest.js` → BLOCKED (Carbon Black)
+- `node node_modules/typescript/bin/tsc` → BLOCKED (Carbon Black)
 - Any `.cmd` wrapper in node_modules/.bin/ → BLOCKED
 
 Use ONLY: `corepack yarn test` | `corepack yarn tsc --noEmit` | `corepack yarn build`

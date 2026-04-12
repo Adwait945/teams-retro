@@ -12,12 +12,23 @@ You are the Integration Engineer for Teams Retro. You take the prototype `.tsx` 
 - **Mongoose models**: `src/lib/models/` (User.ts, Sprint.ts, FeedbackItem.ts, ActionItem.ts)
 - **Client state**: React Context (`RetroProvider`) in `src/store/retro-store.tsx`
 - **Client identity**: `sessionStorage` stores `{ userId, username, pod, isAdmin }` after registration
-- **Package manager**: `corepack yarn` preferred. If `corepack` is blocked (Windows execution policy), use `npx` as fallback — e.g. `npx jest`, `npx tsc --noEmit`, `npx next build`.
-- **Run tests**: `corepack yarn test` (runs Jest via `"test": "jest"` in package.json). Fallback: `npx jest`
-- **Type check**: `corepack yarn tsc --noEmit`. Fallback: `npx tsc --noEmit`
-- **Build**: `corepack yarn build`. Fallback: `npx next build`
-- **Lint**: `corepack yarn lint`. Fallback: `npx next lint`
+- **Package manager**: `corepack yarn` — the ONLY working package manager on this machine
+- **Run tests**: `corepack yarn test` (runs Jest via `"test": "jest"` in package.json)
+- **Type check**: `corepack yarn tsc --noEmit`
+- **Build**: `corepack yarn build`
+- **Lint**: `corepack yarn lint`
 - **Test runner is Jest** (not Vitest) — `jest.config.js` + `jest-environment-jsdom`. Do NOT reference `vitest` anywhere.
+
+## ⛔ PERMANENTLY BLOCKED COMMANDS — CARBON BLACK APP CONTROL
+The following commands are blocked by 7-Eleven endpoint protection (Carbon Black). **Do NOT attempt them. Do NOT retry. Do NOT try alternate paths. Stop immediately if one fails and report.**
+- `npx` (any form) — PowerShell execution policy blocks it
+- `node_modules\.bin\jest.cmd` — Carbon Black blocks `.cmd` files
+- `node_modules\.bin\tsc.cmd` — Carbon Black blocks `.cmd` files
+- `node node_modules/jest/bin/jest.js` — Carbon Black blocks this binary path
+- `node node_modules/typescript/bin/tsc` — Carbon Black blocks this binary path
+- Any file under `node_modules/.bin/` as a direct command — all `.cmd` wrappers are blocked
+
+**If `corepack yarn test` fails** → STOP. Report the error verbatim. Do NOT attempt any fallback path. Wait for human input.
 
 ## Pre-Flight (run before writing any code)
 1. Read `docs/FEATURE_REQUIREMENTS.md`
@@ -118,15 +129,14 @@ Use `$inc` and `$addToSet` in a single `findByIdAndUpdate` call. Check `upvotedB
 2. Cite the exact file path and line numbers before editing
 3. Implement it
 4. Mark it `[x]` in `docs/IMPLEMENTATION_PLAN.md`
-5. Run `corepack yarn vitest run` — if tests fail, fix your code (NOT the tests)
+5. Run `corepack yarn test` — if tests fail, fix your code (NOT the tests)
 6. Move to next task
 
 ## Final Verification (after all tasks are [x])
-Run all four in sequence — all must pass:
+Run all three in sequence — all must pass:
 ```bash
-corepack yarn vitest run
+corepack yarn test
 corepack yarn tsc --noEmit
-corepack yarn lint
 corepack yarn build
 ```
 
@@ -183,7 +193,7 @@ Create `docs/IMPLEMENTATION_NOTES.md`:
 
 ## Definition of Done for This Agent (per session)
 - All `[ ]` tasks for this session are `[x]` in `docs/IMPLEMENTATION_PLAN.md`
-- `corepack yarn vitest run` → 0 failures
+- `corepack yarn test` → 0 failures
 - `corepack yarn tsc --noEmit` → 0 errors
 - `corepack yarn lint` → 0 errors
 - `corepack yarn build` → succeeds

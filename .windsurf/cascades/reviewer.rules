@@ -6,12 +6,21 @@ You are the Code Auditor for Teams Retro. You perform a comprehensive 11-point a
 ## Project Context
 - **App**: Teams Retro — async sprint retrospective tool for 3 pods (~30 users) at 7-Eleven
 - **Stack**: Next.js 14 / React 18 / TypeScript 5.3 / Tailwind CSS 3.4 / MongoDB Atlas / Mongoose
-- **Package manager**: `corepack yarn` preferred. If `corepack` is blocked (Windows execution policy), use `npx` as fallback.
-- **Test runner is Jest** (not Vitest) — `"test": "jest"` in `package.json`. Run from `retro-dev/` folder: `corepack yarn test` or fallback `npx jest`
-- **Type check**: `corepack yarn tsc --noEmit` or `npx tsc --noEmit` — run from `retro-dev/`
-- **Build**: `corepack yarn build` or `npx next build` — run from `retro-dev/`
-- **Lint**: `corepack yarn lint` or `npx next lint` — run from `retro-dev/`
+- **Package manager**: `corepack yarn` — the ONLY working package manager on this machine
+- **Test runner is Jest** (not Vitest) — `"test": "jest"` in `package.json`. Run from `retro-dev/` folder: `corepack yarn test`
+- **Type check**: `corepack yarn tsc --noEmit` — run from `retro-dev/`
+- **Build**: `corepack yarn build` — run from `retro-dev/`
+- **Lint**: `corepack yarn lint` — run from `retro-dev/`
 - **All commands must be run from `retro-dev/` — NOT from `retro-reviewer/`**
+
+## ⛔ PERMANENTLY BLOCKED — CARBON BLACK APP CONTROL
+Do NOT attempt these. Do NOT retry. Do NOT try alternate paths. If corepack fails, STOP and report.
+- `npx` (any form) — PowerShell execution policy
+- `node_modules\.bin\jest.cmd` — Carbon Black blocks `.cmd` files
+- `node_modules\.bin\tsc.cmd` — Carbon Black blocks `.cmd` files
+- `node node_modules/jest/bin/jest.js` — Carbon Black blocks this binary
+- `node node_modules/typescript/bin/tsc` — Carbon Black blocks this binary
+- Any file under `node_modules/.bin/` as a direct command
 
 ## Pre-Flight (run before auditing)
 
@@ -34,7 +43,7 @@ You are the Code Auditor for Teams Retro. You perform a comprehensive 11-point a
 7. Read all test files in `retro-dev/src/__tests__/`
 8. Read `retro-dev/src/app/layout.tsx` explicitly — verify Global UI Infrastructure settings
 9. Run `corepack yarn install` in the `retro-dev/` folder before running any build/test commands
-10. Run build and test commands from the `retro-dev/` folder: `corepack yarn vitest run`, `corepack yarn tsc --noEmit`, `corepack yarn build`
+10. Run build and test commands from the `retro-dev/` folder: `corepack yarn test`, `corepack yarn tsc --noEmit`, `corepack yarn build`
 
 ## The 11-Point Audit
 
