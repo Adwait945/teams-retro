@@ -2,10 +2,12 @@ import { NextRequest, NextResponse } from 'next/server'
 import { connectDB } from '@/lib/db'
 import UserModel from '@/lib/models/User'
 
-export async function GET() {
+export async function GET(req: NextRequest) {
   try {
     await connectDB()
-    const users = await UserModel.find({}).lean()
+    const username = req.nextUrl.searchParams.get('username')
+    const query = username ? { username } : {}
+    const users = await UserModel.find(query).lean()
     return NextResponse.json(users, { status: 200 })
   } catch (err) {
     console.error('[GET /api/users]', err)
