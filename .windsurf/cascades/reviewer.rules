@@ -19,8 +19,10 @@ Do NOT attempt these. Do NOT retry. Do NOT try alternate paths. If corepack fail
 - `node_modules\.bin\jest.cmd` — Carbon Black blocks `.cmd` files
 - `node_modules\.bin\tsc.cmd` — Carbon Black blocks `.cmd` files
 - `node node_modules/jest/bin/jest.js` — Carbon Black blocks this binary
+- `node node_modules/jest/bin/jest.js --no-coverage 2>&1 | Select-String ...` — PowerShell pipe variant also blocked
 - `node node_modules/typescript/bin/tsc` — Carbon Black blocks this binary
 - Any file under `node_modules/.bin/` as a direct command
+- Any PowerShell pipe/filter wrapping a blocked binary — `| Select-String` / `| Select-Object` does NOT bypass Carbon Black
 
 ## Pre-Flight (run before auditing)
 

@@ -25,8 +25,10 @@ The following commands are blocked by 7-Eleven endpoint protection (Carbon Black
 - `node_modules\.bin\jest.cmd` — Carbon Black blocks `.cmd` files
 - `node_modules\.bin\tsc.cmd` — Carbon Black blocks `.cmd` files
 - `node node_modules/jest/bin/jest.js` — Carbon Black blocks this binary path
+- `node node_modules/jest/bin/jest.js --no-coverage 2>&1 | Select-String ...` — PowerShell pipe variant also blocked (Carbon Black intercepts the jest.js invocation before the pipe executes)
 - `node node_modules/typescript/bin/tsc` — Carbon Black blocks this binary path
 - Any file under `node_modules/.bin/` as a direct command — all `.cmd` wrappers are blocked
+- Any PowerShell pipe/filter wrapped around a blocked binary — wrapping in `| Select-String` or `| Select-Object` does NOT bypass Carbon Black; the binary invocation is still blocked
 
 **If `corepack yarn test` fails** → STOP. Report the error verbatim. Do NOT attempt any fallback path. Wait for human input.
 

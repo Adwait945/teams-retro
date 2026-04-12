@@ -827,8 +827,10 @@ Do NOT attempt them. Do NOT try alternate paths. Do NOT loop through fallback va
 - `node_modules\.bin\jest.cmd` → BLOCKED (Carbon Black)
 - `node_modules\.bin\tsc.cmd` → BLOCKED (Carbon Black)
 - `node node_modules/jest/bin/jest.js` → BLOCKED (Carbon Black)
+- `node node_modules/jest/bin/jest.js --no-coverage 2>&1 | Select-String ...` → BLOCKED (Carbon Black intercepts the binary invocation before the pipe executes)
 - `node node_modules/typescript/bin/tsc` → BLOCKED (Carbon Black)
 - Any `.cmd` wrapper in node_modules/.bin/ → BLOCKED
+- Any PowerShell pipe/filter wrapping a blocked binary → BLOCKED (`| Select-String`, `| Select-Object` do NOT bypass Carbon Black)
 
 Use ONLY: `corepack yarn test` | `corepack yarn tsc --noEmit` | `corepack yarn build`
 
