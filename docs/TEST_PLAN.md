@@ -4582,3 +4582,637 @@ await waitFor(() => {
 | `getAllUsers` from `userService` reused — no new service duplication | ✅ |
 | `console.error` pre-existing in `users/route.ts` kept — no cleanup in Sprint 4 | ✅ |
 | `api/users/route.ts` modification backward-compatible — no `?username` param = all users | ✅ |
+
+---
+
+---
+
+# Sprint 5 — Test Plan
+
+**Mode**: [TEST]  
+**Date**: April 2026  
+**Scope**: Epics 5.1 + 5.2 — Error Handling & Edge Cases; Accessibility & data-testid Pass  
+**Rule**: Do NOT modify or delete any Sprint 1–4 test cases above. Only append.  
+**Pre-existing failures**: 2 `getCompletionRate` unit tests fail intentionally (Sprint 3 design change). Sprint 5 completion gate is **0 new failures**.
+
+---
+
+## New Test File (Sprint 5)
+
+| File | Environment | Test IDs | AC Coverage |
+|---|---|---|---|
+| `src/__tests__/errorHandling.test.tsx` | jsdom (default) | EH-1–EH-10 | AC-5.1.1–AC-5.1.4, AC-5.2.3 |
+
+---
+
+## Mock Patterns (Sprint 5)
+
+### Global mocks for `errorHandling.test.tsx`
+
+```tsx
+// jest-environment jsdom (default — no annotation needed)
+import React from 'react'
+import { render, screen, waitFor, fireEvent } from '@testing-library/react'
+
+const mockPush = jest.fn()
+
+jest.mock('next/navigation', () => ({
+  useRouter: () => ({ push: mockPush }),
+  usePathname: () => '/dashboard',
+}))
+
+jest.mock('@/services/userService', () => ({
+  getCurrentUser: jest.fn(),
+}))
+
+jest.mock('@/services/actionService', () => ({
+  getActions: jest.fn(),
+  getCompletionRate: jest.fn(() => 0),
+  getOpenCount: jest.fn(() => 0),
+  getCompletedCount: jest.fn(() => 0),
+  getActionsByStatus: jest.fn((items: unknown[]) => items),
+}))
+
+jest.mock('@/services/feedbackService', () => ({
+  getFeedbackByLane: jest.fn().mockResolvedValue([]),
+  sortByUpvotes: jest.fn((items: unknown[]) => items),
+  addFeedback: jest.fn(),
+  upvoteFeedback: jest.fn(),
+  getAuthorDisplay: jest.fn(() => 'Jane'),
+}))
+
+jest.mock('@/services/actionService', () => ({
+  createAction: jest.fn(),
+  getActions: jest.fn(),
+  getCompletionRate: jest.fn(() => 0),
+  getOpenCount: jest.fn(() => 0),
+  getCompletedCount: jest.fn(() => 0),
+  getActionsByStatus: jest.fn((items: unknown[]) => items),
+  advanceStatus: jest.fn(),
+  verifyImpact: jest.fn(),
+}))
+
+jest.mock('@/components/layout/Shell', () => ({
+  __esModule: true,
+  default: ({ children }: { children: React.ReactNode }) => (
+    <div data-testid="shell">{children}</div>
+  ),
+}))
+
+import { getCurrentUser } from '@/services/userService'
+import { getActions } from '@/services/actionService'
+
+const mockUser = {
+  _id: 'u1',
+  name: 'Jane Doe',
+  username: 'janedoe',
+  pod: 'Pod 1',
+  isAdmin: true,
+  avatar: '',
+  totalPoints: 0,
+  badges: [],
+  createdAt: '',
+}
+
+const mockSprint = {
+  _id: 'sp-1',
+  name: 'Sprint 42',
+  goal: 'Ship it.',
+  startDate: '2023-10-24',
+  endDate: '2023-11-06',
+  status: 'open' as const,
+  teamMemberIds: [],
+}
+
+beforeEach(() => {
+  jest.clearAllMocks()
+  mockPush.mockReset()
+  ;(global.fetch as jest.Mock) = jest.fn()
+  ;(getCurrentUser as jest.Mock).mockReturnValue(mockUser)
+})
+```
+
+### URL-discriminating fetch mock pattern
+
+Used by multiple tests to control what different `fetch()` calls return:
+
+```tsx
+;(global.fetch as jest.Mock).mockImplementation((url: string) => {
+  if (url.includes('/api/sprints')) {
+    return Promise.resolve({ ok: true, json: async () => mockSprint })
+  }
+  if (url.includes('/api/users')) {
+    return Promise.resolve({ ok: true, json: async () => [mockUser] })
+  }
+  return Promise.resolve({ ok: true, json: async () => [] })
+})
+```
+
+### Failure simulation mock pattern
+
+Used by EH-2 and EH-3:
+
+```tsx
+// Simulate fetch throwing (network disconnect)
+;(global.fetch as jest.Mock).mockRejectedValue(new Error('Network Error'))
+
+// OR simulate service throwing:
+;(getActions as jest.Mock).mockRejectedValue(new Error('Service Error'))
+```
+
+---
+
+## `errorHandling.test.tsx` — Full Test Specifications (EH-1 through EH-10)
+
+### EH-1: Dashboard — no session user → `router.push('/')` called
+
+**File**: `errorHandling.test.tsx`  
+**AC**: AC-5.1.3 (auth redirect guard — confirmation test; no code change needed)
+
+**Setup**:
+```tsx
+import DashboardPage from '@/app/dashboard/page'
+;(getCurrentUser as jest.Mock).mockReturnValue(null)
+```
+
+**Action**:
+```tsx
+render(<DashboardPage />)
+await waitFor(() => expect(mockPush).toHaveBeenCalledWith('/'))
+```
+
+**Assertions**:
+```tsx
+expect(mockPush).toHaveBeenCalledWith('/')
+expect(screen.queryByTestId('dashboard-empty-state')).not.toBeInTheDocument()
+expect(screen.queryByTestId('load-error')).not.toBeInTheDocument()
+```
+
+> **Note**: The guard fires synchronously within `useEffect` — `waitFor` is used defensively for async scheduling.
+
+---
+
+### EH-2: Dashboard — `fetch('/api/sprints')` throws → `data-testid="load-error"` visible; no crash
+
+**File**: `errorHandling.test.tsx`  
+**AC**: AC-5.1.1 (API failure → inline error; no crash)
+
+**Setup**:
+```tsx
+import DashboardPage from '@/app/dashboard/page'
+;(getCurrentUser as jest.Mock).mockReturnValue(mockUser)
+;(getActions as jest.Mock).mockResolvedValue([])
+;(global.fetch as jest.Mock).mockRejectedValue(new Error('Network Error'))
+```
+
+**Action**:
+```tsx
+render(<DashboardPage />)
+await waitFor(() => expect(screen.getByTestId('load-error')).toBeInTheDocument())
+```
+
+**Assertions**:
+```tsx
+expect(screen.getByTestId('load-error')).toBeInTheDocument()
+expect(screen.getByTestId('load-error')).toHaveTextContent(
+  'Something went wrong. Please try again.'
+)
+// Page did not crash — shell is still rendered
+expect(screen.getByTestId('shell')).toBeInTheDocument()
+// Normal content is NOT rendered (error state replaces it)
+expect(screen.queryByTestId('dashboard-empty-state')).not.toBeInTheDocument()
+expect(screen.queryByText('No sprint data yet.')).not.toBeInTheDocument()
+```
+
+---
+
+### EH-3: Actions — `getActions` throws → `data-testid` error element visible; no crash
+
+**File**: `errorHandling.test.tsx`  
+**AC**: AC-5.1.1 (already implemented in Sprint 3 — this is a confirmation/regression test)
+
+**Setup**:
+```tsx
+import ActionsPage from '@/app/actions/page'
+;(getCurrentUser as jest.Mock).mockReturnValue(mockUser)
+;(global.fetch as jest.Mock).mockImplementation((url: string) => {
+  if (url.includes('/api/sprints')) {
+    return Promise.resolve({ ok: false, status: 500 })
+  }
+  return Promise.reject(new Error('Network Error'))
+})
+```
+
+**Action**:
+```tsx
+render(<ActionsPage />)
+await waitFor(() =>
+  expect(screen.queryByText(/loading/i)).not.toBeInTheDocument()
+)
+```
+
+**Assertions**:
+```tsx
+// actions/page.tsx renders error text inside a div (not testid="load-error")
+// The pre-existing error message text is "Failed to load data."
+expect(screen.getByText('Failed to load data.')).toBeInTheDocument()
+// Shell is rendered — page did not crash
+expect(screen.getByTestId('shell')).toBeInTheDocument()
+// Empty state is NOT shown when error occurs
+expect(screen.queryByTestId('actions-empty-state')).not.toBeInTheDocument()
+```
+
+> **EH-3 note**: `actions/page.tsx` has a pre-existing error state with the text `"Failed to load data."` set by `setError` — this is distinct from the `data-testid="load-error"` pattern added in Sprint 5 to `dashboard` and `feedback`. EH-3 confirms the existing Sprint 3 error handling still works after Sprint 5 changes. The assertion uses `getByText` not `getByTestId`.
+
+---
+
+### EH-4: Feedback — `sprint === null` (no active sprint) → `data-testid="feedback-empty-state"` visible
+
+**File**: `errorHandling.test.tsx`  
+**AC**: AC-5.1.2 (empty states render correctly — feedback page)
+
+**Setup**:
+```tsx
+import FeedbackPage from '@/app/feedback/page'
+;(getCurrentUser as jest.Mock).mockReturnValue(mockUser)
+;(global.fetch as jest.Mock).mockImplementation((url: string) => {
+  if (url.includes('/api/sprints')) {
+    // Return empty array = no active sprint
+    return Promise.resolve({ ok: true, json: async () => [] })
+  }
+  if (url.includes('/api/users')) {
+    return Promise.resolve({ ok: true, json: async () => [mockUser] })
+  }
+  return Promise.resolve({ ok: true, json: async () => [] })
+})
+```
+
+**Action**:
+```tsx
+render(<FeedbackPage />)
+await waitFor(() =>
+  expect(screen.queryByText(/loading/i)).not.toBeInTheDocument()
+)
+```
+
+**Assertions**:
+```tsx
+expect(screen.getByTestId('feedback-empty-state')).toBeInTheDocument()
+expect(screen.getByTestId('feedback-empty-state')).toHaveTextContent(
+  'No active sprint. Set one up to begin.'
+)
+// Submit Feedback button is disabled (no sprint)
+expect(screen.getByTestId('open-modal-btn')).toBeDisabled()
+```
+
+---
+
+### EH-5: Actions — empty `getActions` return → `data-testid="actions-empty-state"` visible
+
+**File**: `errorHandling.test.tsx`  
+**AC**: AC-5.1.2 (empty states render correctly — actions page)
+
+**Setup**:
+```tsx
+import ActionsPage from '@/app/actions/page'
+;(getCurrentUser as jest.Mock).mockReturnValue(mockUser)
+;(global.fetch as jest.Mock).mockImplementation((url: string) => {
+  if (url.includes('/api/sprints')) {
+    return Promise.resolve({ ok: true, json: async () => mockSprint })
+  }
+  if (url.includes('/api/users')) {
+    return Promise.resolve({ ok: true, json: async () => [mockUser] })
+  }
+  if (url.includes('/api/actions')) {
+    return Promise.resolve({ ok: true, json: async () => [] })
+  }
+  return Promise.resolve({ ok: true, json: async () => [] })
+})
+;(getActions as jest.Mock).mockResolvedValue([])
+```
+
+**Action**:
+```tsx
+render(<ActionsPage />)
+await waitFor(() => expect(screen.getByTestId('actions-empty-state')).toBeInTheDocument())
+```
+
+**Assertions**:
+```tsx
+expect(screen.getByTestId('actions-empty-state')).toBeInTheDocument()
+expect(screen.getByText('No action items yet.')).toBeInTheDocument()
+expect(screen.getByTestId('actions-goto-feedback-btn')).toBeInTheDocument()
+expect(screen.getByTestId('actions-empty-new-btn')).toBeInTheDocument()
+```
+
+---
+
+### EH-6: `SubmitFeedbackModal` — Submit button disabled when content is empty
+
+**File**: `errorHandling.test.tsx`  
+**AC**: AC-5.1.4 (inline form validation — submit disabled pattern is sufficient)
+
+**Setup**:
+```tsx
+import SubmitFeedbackModal from '@/components/SubmitFeedbackModal'
+
+const mockOnClose = jest.fn()
+const mockOnSubmit = jest.fn()
+```
+
+**Action**:
+```tsx
+render(
+  <SubmitFeedbackModal
+    open={true}
+    onClose={mockOnClose}
+    onSubmit={mockOnSubmit}
+    sprintId="sp-1"
+  />
+)
+```
+
+**Assertions**:
+```tsx
+// Submit button is disabled on mount (content is empty)
+expect(screen.getByTestId('modal-submit-btn')).toBeDisabled()
+
+// Type in content — button becomes enabled
+fireEvent.change(screen.getByTestId('sfm-content'), {
+  target: { value: 'This is some feedback' },
+})
+expect(screen.getByTestId('modal-submit-btn')).not.toBeDisabled()
+
+// Clear content — button becomes disabled again
+fireEvent.change(screen.getByTestId('sfm-content'), {
+  target: { value: '' },
+})
+expect(screen.getByTestId('modal-submit-btn')).toBeDisabled()
+```
+
+> **EH-6 note**: This test also confirms `data-testid="sfm-content"` is present (AC-5.2.2) and `data-testid="modal-submit-btn"` is present (pre-existing from Sprint 2). Two ACs verified in one test.
+
+---
+
+### EH-7: `SubmitFeedbackModal` — `role="dialog"` attribute present
+
+**File**: `errorHandling.test.tsx`  
+**AC**: AC-5.2.3 (modals have `role="dialog"` — confirmation test; already implemented)
+
+**Setup**:
+```tsx
+import SubmitFeedbackModal from '@/components/SubmitFeedbackModal'
+```
+
+**Action**:
+```tsx
+render(
+  <SubmitFeedbackModal
+    open={true}
+    onClose={jest.fn()}
+    onSubmit={jest.fn()}
+    sprintId="sp-1"
+  />
+)
+```
+
+**Assertions**:
+```tsx
+expect(screen.getByRole('dialog')).toBeInTheDocument()
+expect(screen.getByRole('dialog')).toHaveAttribute('aria-labelledby', 'sfm-title')
+expect(screen.getByTestId('submit-feedback-modal')).toBeInTheDocument()
+```
+
+---
+
+### EH-8: `NewActionItemModal` — `role="dialog"` attribute present
+
+**File**: `errorHandling.test.tsx`  
+**AC**: AC-5.2.3
+
+**Setup**:
+```tsx
+import NewActionItemModal from '@/components/NewActionItemModal'
+```
+
+**Action**:
+```tsx
+render(
+  <NewActionItemModal
+    open={true}
+    sprintId="sp-1"
+    users={[{ _id: 'u1', name: 'Jane Doe' }]}
+    onClose={jest.fn()}
+    onSubmit={jest.fn()}
+  />
+)
+```
+
+**Assertions**:
+```tsx
+expect(screen.getByRole('dialog')).toBeInTheDocument()
+expect(screen.getByRole('dialog')).toHaveAttribute('aria-labelledby', 'nam-title')
+expect(screen.getByTestId('new-action-modal')).toBeInTheDocument()
+// Confirm new Sprint 5 testids are present
+expect(screen.getByTestId('nam-close-btn')).toBeInTheDocument()
+expect(screen.getByTestId('nam-title-input')).toBeInTheDocument()
+expect(screen.getByTestId('nam-owner')).toBeInTheDocument()
+```
+
+---
+
+### EH-9: `ConvertActionModal` — `role="dialog"` attribute present
+
+**File**: `errorHandling.test.tsx`  
+**AC**: AC-5.2.3
+
+**Setup**:
+```tsx
+import ConvertActionModal from '@/components/ConvertActionModal'
+
+const mockFeedback = {
+  _id: 'fi-1',
+  sprintId: 'sp-1',
+  content: 'We should improve CI pipeline.',
+  category: 'should-try' as const,
+  authorId: 'u1',
+  isAnonymous: false,
+  suggestion: '',
+  upvotes: 0,
+  upvotedBy: [],
+  createdAt: '',
+}
+```
+
+**Action**:
+```tsx
+render(
+  <ConvertActionModal
+    open={true}
+    feedbackItem={mockFeedback}
+    sprintId="sp-1"
+    users={[{ _id: 'u1', name: 'Jane Doe' }]}
+    onClose={jest.fn()}
+    onSubmit={jest.fn()}
+  />
+)
+```
+
+**Assertions**:
+```tsx
+expect(screen.getByRole('dialog')).toBeInTheDocument()
+expect(screen.getByRole('dialog')).toHaveAttribute('aria-labelledby', 'cam-title')
+expect(screen.getByTestId('convert-action-modal')).toBeInTheDocument()
+// Confirm new Sprint 5 testids are present
+expect(screen.getByTestId('cam-close-btn')).toBeInTheDocument()
+expect(screen.getByTestId('cam-title-input')).toBeInTheDocument()
+expect(screen.getByTestId('cam-owner')).toBeInTheDocument()
+```
+
+---
+
+### EH-10: `VerifyImpactModal` — `role="dialog"` attribute present
+
+**File**: `errorHandling.test.tsx`  
+**AC**: AC-5.2.3
+
+**Setup**:
+```tsx
+import VerifyImpactModal from '@/components/VerifyImpactModal'
+import type { ActionItem } from '@/types'
+
+const mockAction: ActionItem = {
+  _id: 'ai-1',
+  title: 'Improve CI pipeline',
+  description: '',
+  ownerId: 'u1',
+  dueDate: '',
+  status: 'completed',
+  sprintId: 'sp-1',
+  sourceFeedbackId: '',
+  sourceQuote: '',
+  impactNote: '',
+  createdAt: '',
+}
+```
+
+**Action**:
+```tsx
+render(
+  <VerifyImpactModal
+    open={true}
+    item={mockAction}
+    onClose={jest.fn()}
+    onSubmit={jest.fn()}
+  />
+)
+```
+
+**Assertions**:
+```tsx
+expect(screen.getByRole('dialog')).toBeInTheDocument()
+expect(screen.getByRole('dialog')).toHaveAttribute('aria-labelledby', 'vim-title')
+expect(screen.getByTestId('verify-impact-modal')).toBeInTheDocument()
+// Confirm new Sprint 5 testids are present
+expect(screen.getByTestId('vim-close-btn')).toBeInTheDocument()
+expect(screen.getByTestId('vim-impact')).toBeInTheDocument()
+expect(screen.getByTestId('verify-impact-submit-btn')).toBeInTheDocument()
+```
+
+---
+
+## Sprint 5 Gap Analysis
+
+### Gap S5-1 — AC-5.2.4 (Focus trap) and AC-5.2.5 (Return focus): no automated RTL test
+
+**Status**: ⏳ **Manual browser verification required**
+
+jsdom does not simulate real keyboard Tab navigation or `document.activeElement` transitions in a meaningful way for testing the full Tab cycle. Writing a meaningful RTL test for focus trap requires complex user-event setup that is out of scope for Sprint 5.
+
+**What IS tested**: `role="dialog"` presence (EH-7–EH-10), `data-testid` on all interactive elements (EH-6, EH-7–EH-10 incidentally), `aria-labelledby` attribute.
+
+**Manual verification steps** (run during Session 1 completion gate):
+1. Open `SubmitFeedbackModal` → press Tab repeatedly → focus must stay within modal
+2. Open `SubmitFeedbackModal` → press × → focus returns to "Submit Feedback" button
+3. Repeat for `NewActionItemModal`, `ConvertActionModal`, `VerifyImpactModal`
+
+**Alternative approach** (if automated coverage is required post-Sprint 5): Use `@testing-library/user-event` v14 with `userEvent.tab()` — out of scope for Sprint 5.
+
+### Gap S5-2 — AC-5.2.1/5.2.2: `data-testid` completeness verified by test assertions, not by grep
+
+**Status**: ⚠️ **Partial gap** — EH-6 through EH-10 confirm presence of specific testids added in Sprint 5, but do not exhaustively assert every single element in every file.
+
+**Recommendation**: After Sprint 5 DEV, run:
+```bash
+grep -r 'data-testid' src/components/ src/app/
+```
+and cross-reference against the AC-5.2.1 + AC-5.2.2 master list in `FEATURE_REQUIREMENTS.md` Sprint 5 section.
+
+### Gap S5-3 — Real network disconnect simulation (Smoke Test Step 18)
+
+**Status**: ⏳ **Manual only** — EH-2 simulates a thrown error (same code path as network disconnect) via `mockRejectedValue`. This fully covers the code path. The actual DevTools network throttle to "Offline" is manual smoke test step 18 only.
+
+---
+
+## Sprint 5 Summary
+
+| Category | Count |
+|---|---|
+| Test cases defined (Sprint 5) | 10 (EH-1–EH-10) |
+| Sprint 1–4 test cases (unchanged) | 95 |
+| **Total test cases across Sprint 1–5** | **105** |
+| ACs with full automated coverage (Sprint 5) | 4 (AC-5.1.1, AC-5.1.2, AC-5.1.3, AC-5.2.3) |
+| ACs with partial/confirmation coverage (Sprint 5) | 2 (AC-5.1.4 — submit disabled ✅ confirmed by EH-6; AC-5.2.1/5.2.2 — spot-checked by EH-7–EH-10) |
+| ACs with manual-only coverage (Sprint 5) | 2 (AC-5.2.4 focus trap, AC-5.2.5 return focus — Gap S5-1) |
+| ACs already satisfied / SKIP (Sprint 5) | 2 (AC-5.1.3 — guard existed; AC-5.1.5 — Shell active route) |
+| Sprint 1–4 tests modified | 0 (none — append only) |
+| New test files created | 1 (`errorHandling.test.tsx`) |
+| Existing test files extended | 0 |
+| Gaps open | 3 (S5-1 manual only; S5-2 grep verification; S5-3 real network manual) |
+| Pre-existing expected failures | 2 (`getCompletionRate` — Sprint 3 design change; do NOT fix) |
+
+### Sprint 5 Test Pre-flight Summary
+
+| Item | Status |
+|---|---|
+| `errorHandling.test.tsx` does not exist yet — CREATE | ✅ Confirmed from `__tests__/` directory listing |
+| `dashboard/page.tsx` auth guard pre-existing (lines 41–45) — EH-1 is confirmation test | ✅ Confirmed |
+| `dashboard/page.tsx` catch is silent — Sprint 5 adds `setLoadError(true)` — EH-2 tests it | ✅ Confirmed |
+| `actions/page.tsx` error state pre-existing (`setError('Failed to load data.')`) — EH-3 tests existing | ✅ Confirmed |
+| `feedback/page.tsx` has no catch — Sprint 5 adds catch block — EH-4 requires it | ✅ Confirmed |
+| `SubmitFeedbackModal` has `role="dialog"`, `aria-labelledby="sfm-title"` already — EH-7 confirms | ✅ Confirmed |
+| `NewActionItemModal` has `role="dialog"`, `aria-labelledby="nam-title"` already — EH-8 confirms | ✅ Confirmed |
+| `ConvertActionModal` has `role="dialog"`, `aria-labelledby="cam-title"` already — EH-9 confirms | ✅ Confirmed |
+| `VerifyImpactModal` has `role="dialog"`, `aria-labelledby="vim-title"` already — EH-10 confirms | ✅ Confirmed |
+| `data-testid="sfm-content"` added in S5-7 — required for EH-6 `getByTestId('sfm-content')` | ✅ Planned in IMPLEMENTATION_PLAN.md S5-7 step 8 |
+| `data-testid="nam-close-btn"` added in S5-8 — asserted in EH-8 | ✅ Planned in IMPLEMENTATION_PLAN.md S5-8 step 7 |
+| `data-testid="cam-close-btn"` added in S5-9 — asserted in EH-9 | ✅ Planned in IMPLEMENTATION_PLAN.md S5-9 step 7 |
+| `data-testid="vim-close-btn"`, `"vim-impact"` added in S5-10 — asserted in EH-10 | ✅ Planned in IMPLEMENTATION_PLAN.md S5-10 steps 7, 9 |
+| `data-testid="actions-empty-state"`, `"actions-goto-feedback-btn"`, `"actions-empty-new-btn"` added in S5-5 — asserted in EH-5 | ✅ Planned in IMPLEMENTATION_PLAN.md S5-5 |
+| 2 pre-existing `getCompletionRate` failures — Sprint 5 must NOT fix these | ✅ Scoped — no `actionService.ts` changes in Sprint 5 |
+| Sprint 5 `feedback/page.tsx` catch block — must NOT break FB-1–FB-16 (all use `fetch` mock returning `ok:true`) | ✅ Additive only — catch only fires on throw; existing mocks resolve successfully |
+
+### Smoke Test Checklist Reference
+
+The full 18-step smoke test is defined in `Sprint5.md`. Steps with automated EH coverage:
+
+| Smoke Step | Coverage |
+|---|---|
+| Step 1 — Visit `/` with empty sessionStorage | Manual (registration page) |
+| Step 2 — Register as User 1 (admin) | Manual |
+| Step 3 — Register as User 2 (non-admin) | Manual |
+| Step 4 — Sprint Setup as admin | Manual (Sprint 4 feature) |
+| Step 5 — Create sprint | Manual |
+| Step 6 — `/feedback` → "+ Add Feedback" modal opens | Manual |
+| Step 7 — Submit feedback to "What Went Well" | Manual |
+| Step 8 — Submit without suggestion (blocked) | EH-6 (partial — submit disabled) |
+| Step 9 — Submit with suggestion | Manual |
+| Step 10 — Upvote card | Manual |
+| Step 11 — Try to upvote own feedback | Manual |
+| Step 12 — Convert to Action | Manual |
+| Step 13 — Save action → appears on `/actions` | Manual |
+| Step 14 — Advance Status twice | Manual |
+| Step 15 — Verify Impact | Manual |
+| Step 16 — Check Dashboard completion rate | Manual |
+| Step 17 — Close retro → feedback disabled | SS-17 (Sprint 4 test) |
+| Step 18 — Disconnect network → inline error | EH-2 (code path); real disconnect is manual |
