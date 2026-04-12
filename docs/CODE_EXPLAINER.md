@@ -471,3 +471,559 @@ Adding `className="dark"` to `<html>` is the single change that unlocks every da
 ---
 
 *End of CODE_EXPLAINER.md — Sprint 1 Foundation*
+
+---
+
+# Code Explainer — Sprint 2 + Sprint 3: Feedback Board + Action Items
+
+**Mode**: [PROFESSOR]
+**Sprints covered**: Sprint 2 (Sessions 1 + 2) + Sprint 3 (Sessions 1 + 2)
+**Date**: April 12, 2026
+
+---
+
+## Sprint 2 — Session 1 Code Explanation
+
+**Session Goal**: Build the complete read-only Feedback Board — a 3-column layout that fetches feedback from MongoDB, displays cards sorted by upvote count, and shows per-column empty states.
+
+**Files delivered**: `src/app/api/feedback/route.ts`, `src/services/feedbackService.ts`, `src/components/FeedbackCard.tsx`, `src/components/FeedbackColumn.tsx`, `src/__tests__/feedbackService.test.ts`, `src/app/feedback/page.tsx` (replaced)
+
+---
+
+### `src/app/api/feedback/route.ts`
+
+**What it IS**: The Next.js API route that handles reading and creating feedback items in MongoDB, with a "Reframe Rule" guard on POST.
+
+**What it DOES**:
+
+| Block | Code | Explanation |
+|---|---|---|
+| 1 | `GET(req)` | Reads optional `sprintId` and `category` query params. Builds a dynamic Mongoose query object and calls `FeedbackItemModel.find(query).lean()`. Returns `200` JSON array. Both filters are optional — you can request one lane, an entire sprint, or all feedback. |
+| 2 | `POST(req)` | Validates `category`, `content`, `sprintId`, `authorId` all present (400 if not). Then applies the **Reframe Rule**: if `category === 'slowed-us-down'` and `suggestion` is empty, returns `422` with a named error. Only if both guards pass does it create, save, and return `201`. |
+| 3 | `try/catch` on both | Returns structured `500` JSON on any database failure — client always receives parseable JSON, never an HTML crash page. |
+
+**Why it EXISTS**: Upvoting and submitting are write operations that must be enforced server-side. The Reframe Rule lives here so even a client that bypasses UI validation cannot post a `slowed-us-down` item without a suggestion.
+
+**How it CONNECTS**: Called by `feedbackService.ts` → tested in `feedbackService.test.ts` (FS-5 through FS-8).
+
+**Plain English Analogy**: The **suggestion box administrator** — checks every submitted note has a category, a project, and (for complaints) a proposed fix before filing it.
+
+---
+
+### `src/services/feedbackService.ts`
+
+**What it IS**: The client-side service module for all feedback data operations — four read/display helpers (Session 1) plus two write helpers (Session 2, described below).
+
+**What it DOES** (Session 1 additions):
+
+| Block | Code | Explanation |
+|---|---|---|
+| 1 | `getFeedback(sprintId?)` | Optional sprintId: if absent, first fetches `/api/sprints` to find the active sprint, then calls `/api/feedback?sprintId=X`. |
+| 2 | `getFeedbackByLane(sprintId, category)` | Calls `GET /api/feedback?sprintId=X&category=Y`. Used by the board page via `Promise.all` to populate all three columns in parallel. |
+| 3 | `sortByUpvotes(items)` | Pure function. Shallow-copies and sorts descending by `upvotes`. Does not mutate the input array. |
+| 4 | `getAuthorDisplay(item, authorName?)` | Pure function. Returns `'Anonymous'` if `item.isAnonymous`, else `authorName ?? 'Unknown'`. Centralises display-name logic. |
+
+**Why it EXISTS**: Decouples "how to talk to the API" from the components. If the endpoint changes, only this file needs updating.
+
+**How it CONNECTS**: Imported by `feedback/page.tsx` (fetch functions) and `FeedbackColumn.tsx` / `FeedbackCard.tsx` (pure functions). Mocked in `feedbackBoard.test.tsx`. Tested directly in `feedbackService.test.ts`.
+
+**Plain English Analogy**: The **librarian for feedback data** — you say "bring me the `should-try` shelf for Sprint 42, sorted by most popular" and the librarian handles the filing cabinet access.
+
+---
+
+### `src/components/FeedbackCard.tsx`
+
+**What it IS**: A single feedback card component displaying one `FeedbackItem`'s content, optional suggestion block, author identity, and upvote button.
+
+**What it DOES**:
+
+| Block | Code | Explanation |
+|---|---|---|
+| 1 | `BORDER_CLASS` lookup | Maps each `FeedbackCategory` to a left-border CSS class. Defined at module scope — computed once, not per render. |
+| 2 | Props interface | `item`, `authorName`, `onUpvote`, and (Sprint 3 S2 addition) `onConvert?`. |
+| 3 | Content + suggestion blocks | `item.content` always shown. Suggestion block rendered conditionally only when `item.suggestion` is non-empty. |
+| 4 | Footer row | Left: author avatar (anonymous icon or initial letter) + display name from `getAuthorDisplay`. Right: upvote button (`data-testid="upvote-btn"`) showing `item.upvotes`. |
+
+**Why it EXISTS**: Atomic unit of the Feedback Board. Extracting it keeps `FeedbackColumn` to a simple `.map()` call and makes the card independently testable.
+
+**How it CONNECTS**: Rendered by `FeedbackColumn`. Receives `onUpvote` and (Sprint 3 S2) `onConvert` forwarded from `FeedbackColumn` ← `feedback/page.tsx`.
+
+**Plain English Analogy**: The **physical sticky note** on the retro board — coloured stripe on the left edge, message in the middle, thumbs-up counter in the corner.
+
+---
+
+### `src/components/FeedbackColumn.tsx`
+
+**What it IS**: A single column of the Feedback Board — category header, count badge, sorted card list, and per-column empty state.
+
+**What it DOES**:
+
+| Block | Code | Explanation |
+|---|---|---|
+| 1 | `COLUMN_CONFIG` lookup | Maps each category to title, Tailwind colours, glow shadow, and empty-state message. Config-driven — no `if/else` chains in JSX. |
+| 2 | Props interface | `category`, `items[]`, `onUpvote(itemId)`, `currentUserId`, and (Sprint 3 S2 addition) `onConvert?`. |
+| 3 | `sortByUpvotes(items)` | Called in the component body — column always displays cards sorted descending regardless of fetch order. |
+| 4 | Empty state | Dashed-border box with per-category message when `sorted.length === 0`. |
+| 5 | Card list | Maps `sorted`, renders `<FeedbackCard>` for each. Partially applies `item._id` into `onUpvote` so the card calls `onUpvote()` without knowing its own ID. |
+
+**Why it EXISTS**: The board has three identical-structured columns differing only in colour and label. Config-driven design means adding a fourth category requires only one new entry in `COLUMN_CONFIG`.
+
+**How it CONNECTS**: Rendered three times by `feedback/page.tsx`. Imports and renders `FeedbackCard`. Imports `sortByUpvotes` from `feedbackService.ts`.
+
+**Plain English Analogy**: The **labelled swim-lane** on the retro board — the "What Slowed Us Down?" column holds a sorted stack of sticky notes (FeedbackCards). The board holds the columns.
+
+---
+
+### `src/__tests__/feedbackService.test.ts`
+
+**What it IS**: Jest test file for `feedbackService.ts` pure functions and the `GET /api/feedback` + `POST /api/feedback` route handlers.
+
+**What it DOES**:
+
+| Block | Code | Explanation |
+|---|---|---|
+| 1 | `@jest-environment node` | Required for `NextRequest`/`NextResponse` which are Node.js constructs unavailable in jsdom. |
+| 2 | Mocks | `@/lib/db` → `connectDB` resolves immediately. `@/lib/models/FeedbackItem` → fake constructor with `mockSave` on instance and `find(...).lean()` wrapping `mockFind` statically. |
+| 3 | `makeFeedbackItem(overrides?)` | Factory — complete default item, only pass fields relevant to each test. |
+| 4 | FS-1, FS-2 (`sortByUpvotes`) | Sorted descending; original array not mutated. |
+| 5 | FS-3, FS-4 (`getAuthorDisplay`) | Anonymous → `'Anonymous'`; named → `authorName`. |
+| 6 | FS-5 (GET) | `mockFind` returns two items → route returns `200` + `Array.isArray`. |
+| 7 | FS-6, FS-7, FS-8 (POST) | Valid `went-well` → `201`; `slowed-us-down` + empty suggestion → `422` + Reframe Rule error + `mockSave` NOT called; `slowed-us-down` + non-empty suggestion → `201`. |
+
+**Why it EXISTS**: Validates both pure computation logic (no mocks needed) and server-side business rules (Reframe Rule enforced at API layer). Safety net: if sort direction changes or 422 guard is relaxed, a test fails immediately.
+
+**Plain English Analogy**: The **quality inspector's checklist** — uses fake filing cabinets (mocks) to verify the sorting machine, the Reframe Rule gate, and the save flow without touching a real database.
+
+---
+
+### `src/app/feedback/page.tsx` — Session 1 version
+
+**What it IS**: The Feedback Board page — the authenticated three-column view that owns data fetching, modal control, and upvote/convert coordination.
+
+**What it DOES**:
+
+| Block | Code | Explanation |
+|---|---|---|
+| 1 | State | `sprint`, `slowedDown`/`shouldTry`/`wentWell` arrays, `showModal`, `showConvertModal` (S3-S2), `convertTarget` (S3-S2), `users` (S3-S2), `isLoading`. |
+| 2 | `refetch(sprintId)` | `useCallback` wrapping `Promise.all` with three `getFeedbackByLane` calls. Stable reference prevents `useEffect` infinite loops. |
+| 3 | `useEffect` | Auth guard → redirect if no user. Fetches `/api/sprints`, resolves active sprint, fetches `/api/users` (S3-S2, with `Array.isArray` guard), calls `refetch`. |
+| 4 | `handleUpvote` (S2) | Calls `upvoteFeedback`, then `refetch`. 403/409 silently caught. |
+| 5 | `handleConvert` / `handleConvertSubmit` (S3-S2) | Sets `convertTarget` + opens modal; calls `createAction` + closes modal. |
+| 6 | `onSubmitFeedback` (S2) | Calls `addFeedback` + `refetch`. |
+| 7 | Render | Loading state → 3 `<FeedbackColumn>` instances → `<SubmitFeedbackModal>` → `<ConvertActionModal>` (S3-S2). |
+
+**Why it EXISTS**: Owns the data lifecycle for the entire Feedback Board — auth guard, sprint resolution, per-lane parallel fetch, refetch after mutations, and modal coordination.
+
+**How it CONNECTS**: Wraps content in `<Shell>`. Uses `getFeedbackByLane`, `addFeedback`, `upvoteFeedback`. Renders `FeedbackColumn` × 3, `SubmitFeedbackModal`, `ConvertActionModal`. Tested FB-1 through FB-16.
+
+**Plain English Analogy**: The **retro facilitator** — checks badges (auth), pulls the sticky notes (fetch by lane), coordinates the "submit a note" and "convert to task" forms (modals).
+
+---
+
+## Sprint 2 — Session 2 Code Explanation
+
+**Session Goal**: Add the Submit Feedback modal (write path) and the upvote system (PATCH route + service + re-fetch).
+
+**Files created**: `src/components/SubmitFeedbackModal.tsx`, `src/app/api/feedback/[id]/upvote/route.ts`, `src/__tests__/feedbackBoard.test.tsx`
+
+**Files modified**: `feedbackService.ts` (added `addFeedback`, `upvoteFeedback`), `feedback/page.tsx` (wired modal + upvote handler), `FeedbackCard.tsx` (added `data-testid="upvote-btn"`)
+
+---
+
+### `src/components/SubmitFeedbackModal.tsx`
+
+**What it IS**: A controlled modal dialog for submitting a new feedback item, with dynamic Reframe Rule enforcement.
+
+**What it DOES**:
+
+| Block | Code | Explanation |
+|---|---|---|
+| 1 | Props | `open`, `onClose`, `onSubmit(payload): Promise<void>`, `sprintId`. Modal is "dumb" — collects data and delegates the API call to the parent. |
+| 2 | State | `category`, `content`, `suggestion`, `isAnonymous`, `isSubmitting`. All reset in `handleClose()`. |
+| 3 | `if (!open) return null` | Complete DOM removal when closed — screen readers never encounter a hidden modal. |
+| 4 | `submitDisabled` | `!content.trim() \|\| (isSlowed && !suggestion.trim()) \|\| isSubmitting`. Three conditions for disable: empty content, Reframe Rule violation, or in-flight submission. |
+| 5 | Backdrop + dialog | `fixed inset-0 z-50` backdrop with click-outside-to-close. `role="dialog"`, `aria-modal="true"`, `aria-labelledby`, `data-testid="submit-feedback-modal"`. |
+| 6 | Category radios | `role="radiogroup"`. Selecting `slowed-us-down` highlights the label with a subtle background. |
+| 7 | Suggestion field | Only rendered when `isSlowed`. Red-bordered textarea + "REFRAME RULE: REQUIRED" badge. |
+| 8 | Submit button | `data-testid="modal-submit-btn"`, `disabled={submitDisabled}`. |
+
+**Why it EXISTS**: The submit flow requires form state, validation, and conditional rendering — too complex to inline in the page. Extracts the concern cleanly; the modal's only contract is "call `onSubmit` with a payload."
+
+**How it CONNECTS**: Rendered by `feedback/page.tsx`. `onSubmit` = `onSubmitFeedback` which calls `addFeedback()`. Tested FB-5 through FB-10.
+
+**Plain English Analogy**: The **suggestion form overlay** — guides you through picking a category, writing your note, and (for complaints) forcing a fix proposal. Hands the completed form to the facilitator (page handler) and clears itself.
+
+---
+
+### `src/app/api/feedback/[id]/upvote/route.ts`
+
+**What it IS**: The PATCH API route that records a single upvote, with guards against self-voting and duplicate voting.
+
+**What it DOES**:
+
+| Block | Code | Explanation |
+|---|---|---|
+| 1 | `userId` + 400 guard | `userId` required in request body. Every upvote must be attributable to a user. |
+| 2 | `findById` + 404 guard | Returns 404 if item not found. |
+| 3 | Self-vote — 403 | `item.authorId === userId` → `403 "Cannot upvote own feedback"`. |
+| 4 | Duplicate — 409 | `item.upvotedBy.includes(userId)` → `409 "Already upvoted"`. Server-side check — not trusted from client. |
+| 5 | Increment + save | `item.upvotedBy.push(userId)`, `item.upvotes += 1`, `item.save()`. Returns `{ upvotes }` as `200`. |
+
+**Why it EXISTS**: Upvote integrity must be server-enforced. `upvotedBy` is the authoritative deduplication set; `upvotes` is a cached integer for fast display.
+
+**How it CONNECTS**: Called by `upvoteFeedback(itemId, userId)` in `feedbackService.ts`. Tested indirectly via mocked `upvoteFeedback` in FB-11, FB-12.
+
+**Plain English Analogy**: The **voting booth clerk** — checks you're not voting for your own proposal (403), haven't already voted (409), then stamps the proposal with one more vote and records your name.
+
+---
+
+### `feedbackService.ts` — Session 2 additions
+
+> **Modification note** — two functions added to the file created in Session 1:
+
+**`addFeedback(payload)`**: Client-side Reframe Rule guard (throws before fetch if `slowed-us-down` + empty suggestion). Calls `POST /api/feedback`. On `422`, reads and re-throws the server error message for display.
+
+**`upvoteFeedback(itemId, userId)`**: Calls `PATCH /api/feedback/{id}/upvote` with `{ userId }`. On non-OK response reads the JSON error and throws. The page handler catches all errors silently — 403 and 409 produce no visible UI change, which is correct UX for these cases.
+
+---
+
+### `src/__tests__/feedbackBoard.test.tsx`
+
+**What it IS**: The React Testing Library integration test file for the full `FeedbackBoardPage` — testing the complete journey from loading through submit and upvote.
+
+**What it DOES**:
+
+| Block | Code | Explanation |
+|---|---|---|
+| 1 | Top-level mocks | `next/navigation`, `@/services/userService`, `@/services/feedbackService`, `@/components/layout/Shell`. Hoisted before any import resolves. Shell mock prevents sidebar's own `sessionStorage` reads from interfering. |
+| 2 | `makeFeedbackItem(overrides?)` | Factory pattern — create a complete valid item with defaults, merge only what each test needs. |
+| 3 | `waitForBoardLoaded()` | Waits for `data-testid="open-modal-btn"`. Only appears after `isLoading = false` — correct loaded-state sentinel. |
+| 4 | `beforeEach` | Clears mocks + `sessionStorage`. `getCurrentUser` → `mockUser`. `getFeedbackByLane` → `[]`. `global.fetch` → returns `mockSprint` for all URLs. |
+| 5 | FB-1–4 | Rendering: valid session renders board; no session redirects; three headers present; empty lane messages shown. |
+| 6 | FB-5–6 | Modal visibility: click Submit → modal appears; Cancel → disappears. |
+| 7 | FB-7–10 | Reframe Rule UI: `slowed-us-down` shows suggestion field + badge; `went-well` hides them; slowed + empty suggestion → submit disabled; slowed + non-empty → enabled. |
+| 8 | FB-11–12 | Error handling: own-feedback upvote → silently swallowed, count unchanged; duplicate upvote → 409 silent, count stays at 4. FB-12 uses a call-counter mock because RTL's `waitFor` polling exhausts `mockResolvedValueOnce` chains. |
+| 9 | FB-13 | Successful upvote → board re-fetches from API; count increments via re-fetch, not locally. |
+| 10 | `describe('Sprint 3 — Convert to Action flow')` | Scoped block with URL-discriminating fetch mock (returns `[mockUser]` for `/api/users`, `mockSprint` for others). FB-14: `should-try` card has `convert-btn`. FB-15: exactly 1 convert button for 2 cards (went-well has none). FB-16: click → `convert-action-modal` appears + title pre-filled + submit disabled. |
+
+**Why it EXISTS**: The board involves async loading, conditional rendering, modal state, error handling, and inter-component callbacks. Integration tests catch failures that unit tests miss.
+
+**Plain English Analogy**: The **mystery shopper** — walks through the entire suggestion box experience, testing column labels, form validation, upvote rejection, and the Convert to Action flow end-to-end.
+
+---
+
+## Sprint 3 — Session 1 Code Explanation
+
+**Session Goal**: Build the complete Action Items page — an authenticated list view with status stats, a "New Action Item" modal, and the full advance/verify lifecycle — backed by new API routes, an extended action service, and a comprehensive test suite.
+
+**Files created**: `src/components/ActionItemCard.tsx`, `src/components/NewActionItemModal.tsx`, `src/app/actions/page.tsx`, `src/app/api/actions/[id]/advance/route.ts`, `src/app/api/actions/[id]/verify/route.ts`
+
+**Files modified**: `src/app/api/actions/route.ts` (hardened), `src/services/actionService.ts` (4 new functions + updated `getCompletionRate`), `src/__tests__/actionService.test.ts` (appended AS-1 through AS-VG-1)
+
+---
+
+### `src/app/api/actions/route.ts` — Sprint 3 Session 1 changes
+
+> **Modification note** — file created Sprint 1 Session 3. Sprint 3 hardened it:
+
+- **GET**: Added `400` guard for missing `sprintId` (previously returned all actions if absent). Added `.limit(100)` to prevent unbounded result sets.
+- **POST**: Forced `status: 'open'` on every new item regardless of what the client sends. Required `title, ownerId, sprintId` trio (previously only `sprintId` + `title`). Replaced `console.error` with `void err`.
+- **catch blocks**: Both now use `void err` (silently discards the error reference) instead of `console.error` to comply with the "no console in src/" convention.
+
+---
+
+### `src/services/actionService.ts` — Sprint 3 Session 1 additions
+
+> **Modification note** — file created Sprint 1 Session 3 with `getActions`, `getCompletionRate`, `getOpenCount`, `getCompletedCount`. Sprint 3 extended it:
+
+**`getCompletionRate` — updated**: Changed from counting `"completed" || "verified"` to counting `"verified"` only. Rationale: a task is only truly validated when a human has written an impact statement. This is a **breaking change** — two Sprint 1 tests now fail intentionally and must not be reverted.
+
+**`CreateActionPayload` interface** (new): Exports the typed shape for creating an action item. Defined once here so both `NewActionItemModal` and `ConvertActionModal` use the same payload type.
+
+**`getActionsByStatus(items)` — new**: Pure function. Sorts action items in canonical display order `open → in-progress → completed → verified` using a `STATUS_ORDER` lookup map. Within the same status, sorts by `createdAt` ascending. Does not mutate the input array.
+
+**`createAction(payload)` — new**: Client-side guard (throws if `title` blank or `ownerId` empty before any fetch), then `POST /api/actions`. Returns the created `ActionItem`.
+
+**`advanceStatus(itemId)` — new**: `PATCH /api/actions/{id}/advance` with no body. Returns the updated item. Transition logic lives on the server route, not here.
+
+**`verifyImpact(itemId, impactNote)` — new**: Client-side guard (throws if `impactNote` blank), then `PATCH /api/actions/{id}/verify` with `{ impactNote }`. The guard fires before any network call — tested by AS-VG-1.
+
+**Plain English Analogy**: The service is now the **complete project manager's toolkit** — a sorting tray (`getActionsByStatus`), a "file a new ticket" function (`createAction`), a "move this ticket forward" function (`advanceStatus`), and a "sign off with written proof" function (`verifyImpact`).
+
+---
+
+### `src/components/ActionItemCard.tsx`
+
+**What it IS**: A single action item card displaying the full state of one `ActionItem` — title, status badge, description, source feedback quote, verified impact note, owner, due date, and contextual action buttons.
+
+**What it DOES**:
+
+| Block | Code | Explanation |
+|---|---|---|
+| 1 | `STATUS_DISPLAY` + `STATUS_COLOR` lookups | Map each status value to a human-readable label and Tailwind colour class. Module-scope — zero conditional logic in JSX for colours. |
+| 2 | Props | `item: ActionItem`, `ownerName: string` (resolved from `usersMap` in page), `onAdvance(itemId)`, `onVerify(item)`. |
+| 3 | Due date logic | `dueDateLabel` is `'Due Today'` if due date matches today's ISO string, `'Due This Sprint'` if a future date exists, or `''` if no due date. |
+| 4 | `showSourceFeedback` flag | True only when both `sourceFeedbackId` and `sourceQuote` are non-empty — prevents an empty block on directly-created items. |
+| 5 | `showImpactNote` flag | True only when `status === 'verified'` AND `impactNote` exists. Impact block only appears on verified items. |
+| 6 | Header | `<h3>` with `item.title` + coloured status badge. |
+| 7 | Source Feedback block | Labelled box with `&ldquo;{item.sourceQuote}&rdquo;` — curly quotes. Shown when `showSourceFeedback`. |
+| 8 | Verified Impact block | Purple-tinted box with impact statement. Shown only when `showImpactNote`. |
+| 9 | Advance Status button | `data-testid="advance-btn"`. Rendered only for `open` or `in-progress` items. Calls `onAdvance(item._id)`. |
+| 10 | Verify Impact button | `data-testid="verify-btn"`. Rendered only for `completed` items. Calls `onVerify(item)` passing the full item so the modal can pre-populate. |
+
+**Why it EXISTS**: Action items have rich information and status-dependent buttons. Embedding this in a page `.map()` would produce hundreds of lines of page JSX. Extracting it keeps each concern isolated and testable.
+
+**How it CONNECTS**: Rendered by `actions/page.tsx`. Tested via AI-5 through AI-8, AI-13.
+
+**Plain English Analogy**: The **Kanban task card** — shows who owns it, when it's due, and what state it's in. If it's in-progress, there's a "Move Forward" arrow; if done, a "Sign Off" stamp space; if signed off, the written proof is printed at the bottom.
+
+---
+
+### `src/components/NewActionItemModal.tsx`
+
+**What it IS**: A controlled modal for manually creating a new action item — title, description, owner, and optional due date.
+
+**What it DOES**:
+
+| Block | Code | Explanation |
+|---|---|---|
+| 1 | Props | `open`, `sprintId`, `users: Pick<User, '_id' \| 'name'>[]`, `onClose`, `onSubmit(payload): Promise<void>`. Only the two user fields needed for the dropdown are passed. |
+| 2 | `submitDisabled` | `!title.trim() \|\| !ownerId \|\| isSubmitting`. Both title and owner required — submit disabled until both filled. |
+| 3 | `handleSubmit` | Calls `onSubmit({ ..., sourceFeedbackId: '', sourceQuote: '', sprintId })`. Empty source fields distinguish direct items from converted ones. |
+| 4 | Dialog markup | `role="dialog"`, `aria-modal="true"`, `data-testid="new-action-modal"`. Backdrop click-to-close. |
+| 5 | Owner `<select>` | Maps `users[]` into `<option>` elements. `ownerId` is required — button stays disabled until a non-empty value is selected. |
+| 6 | Submit button | `data-testid="new-action-submit-btn"`. |
+
+**Why it EXISTS**: Manual action item creation (not from feedback) is a key workflow. Extracting the modal keeps the page thin. The `sourceFeedbackId: ''` convention distinguishes direct from converted items — the card's source block only appears when this field is non-empty.
+
+**How it CONNECTS**: Rendered by `actions/page.tsx`. `onSubmit` = `handleCreateAction` → `createAction()`. Tested AI-14.
+
+**Plain English Analogy**: The **blank new-task form** a team lead fills out when adding an improvement task directly. Must have a title and an owner. Once submitted, appears on the board.
+
+---
+
+### `src/app/actions/page.tsx`
+
+**What it IS**: The Action Items page — the authenticated view for tracking, advancing, and verifying improvement tasks for the active sprint.
+
+**What it DOES**:
+
+| Block | Code | Explanation |
+|---|---|---|
+| 1 | State | `sprint`, `actions`, `users`, `showNewModal`, `showVerifyModal`, `verifyTarget`, `isLoading`, `error`. Both loading and error states required by convention. |
+| 2 | `refetch(sprintId)` | `useCallback` calling `getActions(sprintId)` then `getActionsByStatus(items)`. Stable reference prevents `useEffect` loops. |
+| 3 | `useEffect` | Auth guard → redirect if no user. `AbortController` passed to both fetch calls — cancelled on unmount. Fetches sprint, then users, then calls `refetch`. |
+| 4 | `usersMap` | `{ [userId]: name }` built by iterating `users[]`. Used in render as `usersMap[item.ownerId] ?? 'Unknown'` — no per-render lookup function needed. |
+| 5 | `handleAdvance` | Calls `advanceStatus`, then `refetch`. 409 (already completed) silently swallowed. |
+| 6 | `handleVerify` | Sets `verifyTarget = item`, `showVerifyModal = true`. |
+| 7 | `handleVerifySubmit` | Calls `verifyImpact`, then `refetch`. `showVerifyModal = false` in `finally` — modal always closes even on error. |
+| 8 | `handleCreateAction` | Calls `createAction`, then `refetch`. |
+| 9 | Status bar | Five coloured pill badges. "Completed" shows `completedCount - verifiedCount`. `completionRate` from `getCompletionRate`. |
+| 10 | Empty state | Shown when `actions.length === 0`. Two CTA buttons: "Go to Feedback Board" + "New Action Item". |
+| 11 | List + modals | `actions.map(item => <ActionItemCard>)`. `<NewActionItemModal>` + `<VerifyImpactModal>` mounted always, controlled by `open` prop. |
+
+**Why it EXISTS**: The accountability screen of the app — where the team tracks whether improvements are actually happening. Owns the full data lifecycle for action items and coordinates cards and modals.
+
+**How it CONNECTS**: Wraps in `<Shell>`. Imports `ActionItemCard`, `NewActionItemModal`, `VerifyImpactModal`. Imports 7 functions from `actionService.ts`. Tested AI-1 through AI-14.
+
+**Plain English Analogy**: The **project status wall** — a live board showing every open task, owner, and progress. Team members advance tasks forward or sign off that fixes worked. The page coordinates all state changes.
+
+---
+
+### `src/app/api/actions/[id]/advance/route.ts`
+
+**What it IS**: The PATCH route that advances an action item one step through the lifecycle: `open → in-progress → completed`. Cannot advance past `completed`.
+
+**What it DOES**:
+
+| Block | Code | Explanation |
+|---|---|---|
+| 1 | `ADVANCE_MAP` | `{ 'open': 'in-progress', 'in-progress': 'completed' }`. Looking up `completed` or `verified` returns `undefined`. |
+| 2 | `findById` + 404 guard | Standard lookup. |
+| 3 | `!nextStatus` → 409 | If status is `completed` or `verified`, returns `409 "Cannot advance: item is already completed or verified"`. |
+| 4 | Update + save | `item.status = nextStatus`, `item.save()`, returns full updated item as `200`. |
+
+**Why it EXISTS**: Status transition logic belongs server-side — a malicious client cannot send `status: "verified"` directly and bypass the impact-note requirement in the verify route.
+
+**How it CONNECTS**: Called by `advanceStatus(itemId)` in `actionService.ts`. Tested AS-8, AS-9, AS-10.
+
+**Plain English Analogy**: The **Kanban column gate** — moves a card one column right. Once a card reaches "Done", the gate locks. Moving to "Verified" requires the separate verify process.
+
+---
+
+### `src/app/api/actions/[id]/verify/route.ts`
+
+**What it IS**: The PATCH route that marks a `completed` action item as `verified` by recording a non-empty impact note.
+
+**What it DOES**:
+
+| Block | Code | Explanation |
+|---|---|---|
+| 1 | `impactNote` + 400 guard | Missing or whitespace-only → `400 "impactNote is required"`. Evidence is not optional. |
+| 2 | `findById` + 404 guard | Standard lookup. |
+| 3 | Status check + 409 guard | `item.status !== 'completed'` → `409 "Cannot verify: item must be in completed status"`. Cannot verify open or in-progress items. |
+| 4 | Set verified + save | `item.status = 'verified'`, `item.impactNote = impactNote.trim()`. Returns updated item as `200`. |
+
+**Why it EXISTS**: Verification is a distinct event from completion — "we said we fixed it" (completed) vs "we measured it worked" (verified). Requiring `impactNote` and only allowing transition from `completed` enforces the accountability model.
+
+**How it CONNECTS**: Called by `verifyImpact(itemId, impactNote)` in `actionService.ts`. Tested AS-11, AS-12, AS-13.
+
+**Plain English Analogy**: The **quality sign-off window** — stamps "VERIFIED" only if the task was already complete AND you hand in a written note proving the improvement worked.
+
+---
+
+### `src/__tests__/actionService.test.ts` — Sprint 3 additions
+
+> **Extension note** — file existed from Sprint 1 with DB-7 and four legacy tests. Sprint 3 appended AS-1 through AS-VG-1.
+
+**Mock architecture**: `jest.mock('@/lib/models/ActionItem', ...)` uses a factory that declares `mockSave`, `mockFind`, `mockFindById` *inside* the factory, exposes them via `__mockSave`, `__mockFind`, `__mockFindById` properties on the constructor, and retrieves them in tests via `jest.requireMock()`. This solves Jest's hoisting problem: factory functions run before module imports, so module-scope variables are not yet initialised when the factory runs.
+
+| Test group | Tests | What is validated |
+|---|---|---|
+| `getActionsByStatus` | AS-1, AS-2 | AS-1: four items in mixed order → sorted `open→in-progress→completed→verified`. AS-2: original array not mutated. |
+| `getCompletionRate Sprint 3` | AS-3 | 2 verified / 5 total → `40`. Confirms `verified`-only counting. |
+| `GET /api/actions` | AS-4, AS-5 | With `sprintId` → `200` + array; no `sprintId` → `400`. |
+| `POST /api/actions` | AS-6, AS-7 | Valid payload → `201` + `mockSave` called; missing `title` → `400`, no save. |
+| `PATCH advance` | AS-8–10 | open→in-progress `200`; in-progress→completed `200`; completed→`409` (no save). |
+| `PATCH verify` | AS-11–13 | completed + valid note → `200` + `verified` + `impactNote` stored; empty note → `400`; non-completed → `409`. |
+| `verifyImpact service` | AS-VG-1 | Throws before `fetch` when `impactNote` empty — client-side guard fires first. |
+
+**Plain English Analogy**: The **automated inspection checklist for the task back-end** — verifies one-step-at-a-time advancement, mandatory impact notes, and that the client-side guard refuses to call the server with a blank note.
+
+---
+
+## Sprint 3 — Session 2 Code Explanation
+
+**Session Goal**: Close the feedback-to-action-item loop with the "Convert to Action" flow and replace the verify modal stub with the real `VerifyImpactModal`.
+
+**Files created**: `src/components/ConvertActionModal.tsx`, `src/components/VerifyImpactModal.tsx`, `src/__tests__/actionItems.test.tsx`
+
+**Files modified** (short "What changed" notes):
+- `src/components/FeedbackCard.tsx` — added `onConvert?` prop + "Convert to Action" button
+- `src/components/FeedbackColumn.tsx` — added `onConvert?` prop forwarding
+- `src/app/feedback/page.tsx` — wired `ConvertActionModal`, users fetch, convert handlers
+- `src/app/actions/page.tsx` — replaced stub with real `<VerifyImpactModal>`
+- `src/__tests__/feedbackBoard.test.tsx` — appended FB-14/15/16 in scoped describe block
+
+---
+
+### `src/components/ConvertActionModal.tsx`
+
+**What it IS**: A controlled modal that converts a `should-try` feedback item into a new action item, pre-filling the title from feedback content and requiring an owner assignment.
+
+**What it DOES**:
+
+| Block | Code | Explanation |
+|---|---|---|
+| 1 | Props | `open`, `feedbackItem: FeedbackItem \| null`, `sprintId`, `users: Pick<User, '_id' \| 'name'>[]`, `onClose`, `onSubmit(payload: CreateActionPayload): Promise<void>`. |
+| 2 | `useEffect([feedbackItem])` | When `feedbackItem` changes (new card's Convert button clicked), sets `title = feedbackItem.content`. This is the **pre-fill** mechanism — modal opens with the feedback text already in the title field. |
+| 3 | `if (!open \|\| !feedbackItem) return null` | Double guard — don't render if closed or if no source item. |
+| 4 | `submitDisabled` | `!title.trim() \|\| !ownerId \|\| isSubmitting`. Both title and owner required. |
+| 5 | `handleSubmit` | Calls `onSubmit({ ..., sourceFeedbackId: feedbackItem._id, sourceQuote: feedbackItem.content, sprintId })`. Sets both source fields — creates the traceability link displayed in `ActionItemCard`'s "Source Feedback" block. |
+| 6 | Source quote blockquote | `border-l-4 border-blue-500` with feedback content in italic. Shows the user what they are converting. |
+| 7 | Owner `<select>` | Same pattern as `NewActionItemModal`. Required. |
+| 8 | Submit button | `data-testid="convert-action-submit-btn"`. Amber-coloured to distinguish from other Submit buttons. |
+
+**Why it EXISTS**: The convert flow bridges the Feedback Board and the Action Items page. Without it, teams manually copy feedback into action item forms and lose the audit trail. With it, one click pre-fills the form and permanently records which feedback triggered which action.
+
+**How it CONNECTS**: Rendered by `feedback/page.tsx`. `onSubmit` = `handleConvertSubmit` → `createAction()`. `feedbackItem` = `convertTarget` state set by `handleConvert(item)`. Tested FB-16.
+
+**Plain English Analogy**: The **"turn this suggestion into a task" form** — suggestion text is pre-copied into the title box. Pick an owner, click Create. The task card will forever show where it came from.
+
+---
+
+### `src/components/VerifyImpactModal.tsx`
+
+**What it IS**: A controlled modal for writing an impact statement that marks a `completed` action item as `verified` — the final step of the improvement lifecycle.
+
+**What it DOES**:
+
+| Block | Code | Explanation |
+|---|---|---|
+| 1 | Props | `open`, `item: ActionItem \| null`, `onClose`, `onSubmit(itemId: string, impactNote: string): Promise<void>`. |
+| 2 | `if (!open \|\| !item) return null` | Double guard — same pattern as `ConvertActionModal`. |
+| 3 | `submitDisabled` | `!impactNote.trim() \|\| impactNote.length > 300 \|\| isSubmitting`. Empty, over limit, or submitting. The `> 300` check mirrors `maxLength={300}` — both needed because `maxLength` can be bypassed by pasting. |
+| 4 | `handleSubmit` | Calls `onSubmit(item._id, impactNote)`. Page handler calls `verifyImpact(itemId, impactNote)` → verify API route. |
+| 5 | Item title display | Renders `item.title` above the form — user can see which task they are verifying. |
+| 6 | Source quote (conditional) | `item.sourceQuote !== ''` → shows amber left-border blockquote with original feedback. Only appears for converted items. |
+| 7 | Impact textarea | `maxLength={300}`, placeholder with measurable outcome example. |
+| 8 | Character counter | `{impactNote.length} / 300` — live update. Provides feedback before the user hits the limit. |
+| 9 | Submit button | `data-testid="verify-impact-submit-btn"`. Amber. Text: "Confirm Verified". |
+
+**Why it EXISTS**: Verification is the most consequential lifecycle step — the formal record that an improvement was real and measurable. The 300-char limit forces conciseness. The impact note is stored permanently and displayed on `ActionItemCard` thereafter.
+
+**How it CONNECTS**: Rendered by `actions/page.tsx` (replaced the stub). `onSubmit` = `handleVerifySubmit`. `item` = `verifyTarget` state. Tested AI-9 through AI-12.
+
+**Plain English Analogy**: The **sign-off form for a completed improvement** — you must submit written proof of impact (max 300 chars). Once submitted, the proof is permanently attached to the task card.
+
+---
+
+### `FeedbackCard.tsx` — Sprint 3 Session 2 changes
+
+> **What changed**: Added optional `onConvert?: (item: FeedbackItem) => void` to props. When `onConvert` is defined AND `item.category === 'should-try'`, renders a `data-testid="convert-btn"` amber button. Calls `onConvert(item)`. The `category === 'should-try'` guard ensures only suggestion cards show the button — not `slowed-us-down` or `went-well`.
+
+---
+
+### `FeedbackColumn.tsx` — Sprint 3 Session 2 changes
+
+> **What changed**: Added `onConvert?: (item: FeedbackItem) => void` to props. Transparent pass-through: receives `onConvert` from the page and forwards it to each `<FeedbackCard>`. Because the prop is optional, all existing `FeedbackColumn` usages without `onConvert` continue to work unchanged.
+
+---
+
+### `feedback/page.tsx` — Sprint 3 Session 2 changes
+
+> **What changed**: Added `ConvertActionModal` + `createAction` imports. Added three state variables: `showConvertModal`, `convertTarget: FeedbackItem | null`, `users: Pick<User, '_id' | 'name'>[]`. Added `GET /api/users` fetch inside `load()` guarded by `Array.isArray` (prevents TypeError when the existing test mock returns a non-array for all URLs). Added `handleConvert(item)` and `handleConvertSubmit(payload)`. Passed `onConvert={handleConvert}` to all three `<FeedbackColumn>` instances. Added `<ConvertActionModal>` at the bottom of the return tree.
+
+**Key design decision — `Array.isArray` guard**: The outer `feedbackBoard.test.tsx` `beforeEach` mocks `global.fetch` returning `mockSprint` (a plain object) for ALL URLs. Without the guard, `usersData.map(...)` would throw a `TypeError` in all FB-1–FB-13 tests. The guard (`if (Array.isArray(usersData))`) allows the page to gracefully skip user population when the response isn't an array — correct in test (skips) and correct in production (maps real array).
+
+---
+
+### `actions/page.tsx` — Sprint 3 Session 2 changes
+
+> **What changed**: Added `VerifyImpactModal` import. Replaced the one-line stub `{showVerifyModal && <div data-testid="verify-modal-stub" />}` with the full `<VerifyImpactModal open={showVerifyModal} item={verifyTarget} onClose={...} onSubmit={handleVerifySubmit} />`. The `handleVerifySubmit` function was already wired in Session 1 — Session 2 connected it to the real modal.
+
+---
+
+### `feedbackBoard.test.tsx` — Sprint 3 Session 2 changes
+
+> **What changed**: Appended a `describe('Sprint 3 — Convert to Action flow', ...)` block at the end of the file. This scoped block has its own `beforeEach` that overrides `global.fetch` with a URL-discriminating mock: `/api/users` → returns `[mockUser]` (an array, matching the real endpoint); all other URLs → return `mockSprint`. Necessary because `feedback/page.tsx` now fetches `/api/users` — the outer `beforeEach` mock would return `mockSprint` (a plain object) for this URL, producing an empty `users` array even with the `Array.isArray` guard, which is the correct outer-test behaviour but the wrong inner-test behaviour (FB-16 needs a real user in the owner dropdown).
+
+---
+
+### `src/__tests__/actionItems.test.tsx`
+
+**What it IS**: The React Testing Library integration test file for `ActionItemsPage` — AI-1 through AI-14 covering the full page lifecycle.
+
+**What it DOES**:
+
+| Block | Code | Explanation |
+|---|---|---|
+| 1 | `@jest-environment jsdom` | Explicit jsdom environment — renders React components in a browser-like DOM. |
+| 2 | Top-level mocks | `next/navigation`, `@/services/userService`, `@/services/actionService`, `@/components/layout/Shell`. Same pattern as `feedbackBoard.test.tsx`. |
+| 3 | `makeActionItem(overrides?)` | Factory — default open item, only pass the fields each test needs. |
+| 4 | `waitForPageLoaded()` | Waits for `data-testid="open-new-action-btn"`. This button only renders once `isLoading === false` and no error — correct loaded-state sentinel. `shell` was deliberately not used because Shell renders in both loading and loaded states. |
+| 5 | `beforeEach` | Clears mocks + `sessionStorage`. `getCurrentUser` → `mockUser`. `getActions` → `[]`. `global.fetch` URL-discriminating mock: `/api/users` → `[mockUser]`, all others → `mockSprint`. |
+| 6 | AI-1 | Valid session → `shell` renders, no redirect. |
+| 7 | AI-2 | No session → `router.push('/')` called. |
+| 8 | AI-3 | Empty `getActions` → empty state heading + body present. |
+| 9 | AI-4 | "Go to Feedback Board" → `router.push('/feedback')`. |
+| 10 | AI-5 | `getActions` returns items → card titles rendered. |
+| 11 | AI-6 | Click `advance-btn` → `advanceStatus` called with correct `itemId` + `getActions` re-called. |
+| 12 | AI-7 | Card with `status='completed'` → `verify-btn` present, `advance-btn` absent. |
+| 13 | AI-8 | Card with `status='verified'` → neither `advance-btn` nor `verify-btn` present. |
+| 14 | AI-9 | Click `verify-btn` → `data-testid="verify-impact-modal"` appears in DOM. |
+| 15 | AI-10 | Verify modal — submit disabled when `impactNote` empty. |
+| 16 | AI-11 | Verify modal — submit disabled when `impactNote.length > 300`. |
+| 17 | AI-12 | Valid impact note → submit → `verifyImpact` called → modal closes → `getActions` re-called. |
+| 18 | AI-13 | Card with `sourceFeedbackId` non-empty → "Source Feedback" block present; card without → absent. Source quote matched by regex (`/Adopt a No Meeting Thursday policy/`) because `ActionItemCard` wraps quotes in `&ldquo;...&rdquo;` (curly quotes) which break exact string matching. |
+| 19 | AI-14 | Click `open-new-action-btn` → `new-action-modal` appears; submit disabled; type title + select owner via combobox → submit enabled; Cancel → modal removed. Owner selection is required alongside title because `submitDisabled = !title.trim() \|\| !ownerId`. |
+
+**Why it EXISTS**: Covers the complete action items page lifecycle end-to-end — auth guard, loading states, status-specific button visibility, modal interactions, and re-fetch after mutations. Integration tests catch failures that card/modal unit tests miss.
+
+**How it CONNECTS**: Renders `ActionItemsPage` from `src/app/actions/page.tsx`. All service and navigation dependencies mocked. `VerifyImpactModal` and `NewActionItemModal` rendered as real components (not mocked) so their internal validation logic is exercised.
+
+**Plain English Analogy**: The **mystery shopper for the task board** — checks that empty states appear when there are no tasks, that only the right buttons show for each status, that the verify form rejects empty notes, and that manually creating a task requires both a title and an owner.
+
+---
+
+*End of CODE_EXPLAINER.md — Sprint 2 + Sprint 3*
