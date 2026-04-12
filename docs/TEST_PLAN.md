@@ -3834,3 +3834,751 @@ export function getCompletionRate(actions: ActionItem[]): number {
 | Gap S3-2 resolved by AI-14 | ✅ Full spec written |
 | Gap S3-3 resolved by FB-14/15/16 | ✅ Full specs written |
 | Gap S3-4 remains open (visual only) | ⏳ Manual review required |
+
+---
+
+---
+
+# Sprint 4 — Test Plan
+
+**Mode**: [TEST]  
+**Date**: April 2026  
+**Scope**: Epic 4.1 — Sprint Setup + Admin Controls  
+**Rule**: Do NOT modify or delete any Sprint 1, Sprint 2, or Sprint 3 test cases above. Only append.
+
+---
+
+## New Test Files (Sprint 4)
+
+| File | Environment | Test IDs | AC Coverage |
+|---|---|---|---|
+| `src/__tests__/sprintService.test.ts` | `@jest-environment node` | SS-1–SS-8 | AC-4.1.7, AC-4.1.10 |
+| `src/__tests__/sprintSetup.test.tsx` | jsdom (default) | SS-9–SS-17 | AC-4.1.1–AC-4.1.6, AC-4.1.8 |
+
+---
+
+## Mock Patterns (Sprint 4)
+
+### `sprintService.test.ts` — Node environment mocks
+
+```ts
+// @jest-environment node
+
+jest.mock('@/lib/db', () => ({ connectDB: jest.fn() }))
+
+jest.mock('@/lib/models/Sprint', () => {
+  const mockSave = jest.fn()
+  const MockSprint = jest.fn().mockImplementation((data) => ({ ...data, save: mockSave }))
+  MockSprint.findOne = jest.fn()
+  MockSprint.findById = jest.fn()
+  return { __esModule: true, default: MockSprint }
+})
+```
+
+**`global.fetch` mock** (for service function tests):
+```ts
+;(global.fetch as jest.Mock) = jest.fn()
+```
+
+URL-discriminating pattern used per test:
+```ts
+;(global.fetch as jest.Mock).mockResolvedValueOnce({
+  ok: true,
+  json: async () => mockSprint,
+})
+```
+
+### `sprintSetup.test.tsx` — jsdom environment mocks
+
+```ts
+// jest.config uses jsdom by default
+
+const mockPush = jest.fn()
+
+jest.mock('next/navigation', () => ({
+  useRouter: () => ({ push: mockPush }),
+  usePathname: () => '/sprint-setup',
+}))
+
+jest.mock('@/services/userService', () => ({
+  getCurrentUser: jest.fn(),
+  getAllUsers: jest.fn(),
+}))
+
+jest.mock('@/services/sprintService', () => ({
+  getActiveSprint: jest.fn(),
+  createSprint: jest.fn(),
+  updateSprint: jest.fn(),
+  openRetro: jest.fn(),
+  closeRetro: jest.fn(),
+}))
+
+jest.mock('@/components/layout/Shell', () => ({
+  __esModule: true,
+  default: ({ children }: { children: React.ReactNode }) => (
+    <div data-testid="shell">{children}</div>
+  ),
+}))
+```
+
+**`beforeEach` for `sprintSetup.test.tsx`**:
+```ts
+beforeEach(() => {
+  jest.clearAllMocks()
+  sessionStorage.clear()
+  mockPush.mockReset()
+  ;(getActiveSprint as jest.Mock).mockResolvedValue(mockSprint)
+  ;(getAllUsers as jest.Mock).mockResolvedValue([mockAdminUser, mockMember])
+})
+```
+
+**Factory helpers**:
+```ts
+const mockSprint: Sprint = {
+  _id: 'sp-1',
+  name: 'Sprint 42',
+  goal: 'Complete checkout flow.',
+  startDate: '2023-10-24',
+  endDate: '2023-11-06',
+  status: 'open',
+  teamMemberIds: ['user-1'],
+}
+
+const mockAdminUser: User = {
+  _id: 'user-1',
+  name: 'Jane Doe',
+  username: 'janedoe',
+  pod: 'Pod 1',
+  isAdmin: true,
+  avatar: '',
+  totalPoints: 0,
+  badges: [],
+  createdAt: '',
+}
+
+const mockMember: User = {
+  _id: 'user-2',
+  name: 'Alex Chen',
+  username: 'alexchen',
+  pod: 'Pod 1',
+  isAdmin: false,
+  avatar: '',
+  totalPoints: 0,
+  badges: [],
+  createdAt: '',
+}
+```
+
+**`waitForPageLoaded` helper** (reuse pattern from Sprint 3):
+```ts
+async function waitForPageLoaded() {
+  await waitFor(() => expect(screen.getByTestId('sprint-setup-page')).toBeInTheDocument())
+}
+```
+
+---
+
+## `sprintService.test.ts` — Full Test Specifications (SS-1 through SS-8)
+
+### SS-1: `getActiveSprint()` returns Sprint when API returns a sprint object
+
+**File**: `sprintService.test.ts`  
+**AC**: AC-4.1.10 (`getActiveSprint` normalisation — object path)
+
+**Setup**:
+```ts
+;(global.fetch as jest.Mock).mockResolvedValueOnce({
+  ok: true,
+  json: async () => mockSprint,
+})
+```
+
+**Action**:
+```ts
+const result = await getActiveSprint()
+```
+
+**Assertions**:
+```ts
+expect(global.fetch).toHaveBeenCalledWith('/api/sprints')
+expect(result).toEqual(mockSprint)
+```
+
+---
+
+### SS-2: `getActiveSprint()` returns `null` when API returns empty array
+
+**File**: `sprintService.test.ts`  
+**AC**: AC-4.1.10 (`getActiveSprint` normalisation — empty array path)
+
+**Setup**:
+```ts
+;(global.fetch as jest.Mock).mockResolvedValueOnce({
+  ok: true,
+  json: async () => [],
+})
+```
+
+**Action**:
+```ts
+const result = await getActiveSprint()
+```
+
+**Assertions**:
+```ts
+expect(result).toBeNull()
+```
+
+---
+
+### SS-3: `createSprint(payload)` calls `POST /api/sprints` and returns Sprint
+
+**File**: `sprintService.test.ts`  
+**AC**: AC-4.1.7 (`createSprint` → POST)
+
+**Setup**:
+```ts
+const payload = { name: 'Sprint 43', startDate: '2023-11-07', endDate: '2023-11-20' }
+;(global.fetch as jest.Mock).mockResolvedValueOnce({
+  ok: true,
+  json: async () => ({ ...payload, _id: 'sp-new', status: 'open', teamMemberIds: [], goal: '' }),
+})
+```
+
+**Action**:
+```ts
+const result = await createSprint(payload)
+```
+
+**Assertions**:
+```ts
+expect(global.fetch).toHaveBeenCalledWith('/api/sprints', expect.objectContaining({
+  method: 'POST',
+  headers: { 'Content-Type': 'application/json' },
+  body: JSON.stringify(payload),
+}))
+expect(result._id).toBe('sp-new')
+expect(result.name).toBe('Sprint 43')
+```
+
+---
+
+### SS-4: `updateSprint(id, payload)` calls `PATCH /api/sprints/[id]` and returns updated Sprint
+
+**File**: `sprintService.test.ts`  
+**AC**: AC-4.1.7 (`updateSprint` → PATCH)
+
+**Setup**:
+```ts
+const updatePayload = { name: 'Sprint 42 Updated', teamMemberIds: ['user-1', 'user-2'] }
+;(global.fetch as jest.Mock).mockResolvedValueOnce({
+  ok: true,
+  json: async () => ({ ...mockSprint, ...updatePayload }),
+})
+```
+
+**Action**:
+```ts
+const result = await updateSprint('sp-1', updatePayload)
+```
+
+**Assertions**:
+```ts
+expect(global.fetch).toHaveBeenCalledWith('/api/sprints/sp-1', expect.objectContaining({
+  method: 'PATCH',
+  headers: { 'Content-Type': 'application/json' },
+  body: JSON.stringify(updatePayload),
+}))
+expect(result.name).toBe('Sprint 42 Updated')
+expect(result.teamMemberIds).toEqual(['user-1', 'user-2'])
+```
+
+---
+
+### SS-5: `openRetro(id)` calls `PATCH /api/sprints/[id]/status` with `{ status: 'open' }`
+
+**File**: `sprintService.test.ts`  
+**AC**: AC-4.1.4 (open retro persistence)
+
+**Setup**:
+```ts
+;(global.fetch as jest.Mock).mockResolvedValueOnce({
+  ok: true,
+  json: async () => ({ ...mockSprint, status: 'open' }),
+})
+```
+
+**Action**:
+```ts
+const result = await openRetro('sp-1')
+```
+
+**Assertions**:
+```ts
+expect(global.fetch).toHaveBeenCalledWith('/api/sprints/sp-1/status', expect.objectContaining({
+  method: 'PATCH',
+  body: JSON.stringify({ status: 'open' }),
+}))
+expect(result.status).toBe('open')
+```
+
+---
+
+### SS-6: `closeRetro(id)` calls `PATCH /api/sprints/[id]/status` with `{ status: 'closed' }`
+
+**File**: `sprintService.test.ts`  
+**AC**: AC-4.1.4 (close retro persistence), AC-4.1.5
+
+**Setup**:
+```ts
+;(global.fetch as jest.Mock).mockResolvedValueOnce({
+  ok: true,
+  json: async () => ({ ...mockSprint, status: 'closed' }),
+})
+```
+
+**Action**:
+```ts
+const result = await closeRetro('sp-1')
+```
+
+**Assertions**:
+```ts
+expect(global.fetch).toHaveBeenCalledWith('/api/sprints/sp-1/status', expect.objectContaining({
+  method: 'PATCH',
+  body: JSON.stringify({ status: 'closed' }),
+}))
+expect(result.status).toBe('closed')
+```
+
+---
+
+### SS-7: `PATCH /api/sprints/[id]` route returns 404 when sprint not found
+
+**File**: `sprintService.test.ts`  
+**AC**: AC-4.1.7 (API 404 guard)  
+**Environment**: node — tests the route handler directly
+
+**Setup**:
+```ts
+import { PATCH } from '@/app/api/sprints/[id]/route'
+// connectDB mock + SprintModel.findById returns null
+
+;(SprintModel.findById as jest.Mock).mockResolvedValueOnce(null)
+const req = new Request('http://localhost/api/sprints/nonexistent', {
+  method: 'PATCH',
+  body: JSON.stringify({ name: 'New Name' }),
+  headers: { 'Content-Type': 'application/json' },
+}) as NextRequest
+```
+
+**Action**:
+```ts
+const res = await PATCH(req, { params: { id: 'nonexistent' } })
+const body = await res.json()
+```
+
+**Assertions**:
+```ts
+expect(res.status).toBe(404)
+expect(body.error).toBe('Sprint not found')
+```
+
+---
+
+### SS-8: `PATCH /api/sprints/[id]/status` route returns 400 for invalid status value
+
+**File**: `sprintService.test.ts`  
+**AC**: AC-4.1.4 (status enum validation at API layer)  
+**Environment**: node — tests the route handler directly
+
+**Setup**:
+```ts
+import { PATCH as PATCHStatus } from '@/app/api/sprints/[id]/status/route'
+const req = new Request('http://localhost/api/sprints/sp-1/status', {
+  method: 'PATCH',
+  body: JSON.stringify({ status: 'in-review' }),
+  headers: { 'Content-Type': 'application/json' },
+}) as NextRequest
+```
+
+**Action**:
+```ts
+const res = await PATCHStatus(req, { params: { id: 'sp-1' } })
+const body = await res.json()
+```
+
+**Assertions**:
+```ts
+expect(res.status).toBe(400)
+expect(body.error).toMatch(/status must be/i)
+```
+
+---
+
+## `sprintSetup.test.tsx` — Full Test Specifications (SS-9 through SS-17)
+
+### SS-9: No session user → redirects to `/`
+
+**File**: `sprintSetup.test.tsx`  
+**AC**: AC-4.1.1 (session guard)
+
+**Setup**:
+```ts
+;(getCurrentUser as jest.Mock).mockReturnValue(null)
+;(getActiveSprint as jest.Mock).mockResolvedValue(null)
+;(getAllUsers as jest.Mock).mockResolvedValue([])
+```
+
+**Action**:
+```ts
+render(<SprintSetupPage />)
+await waitFor(() => expect(mockPush).toHaveBeenCalledWith('/'))
+```
+
+**Assertions**:
+```ts
+expect(mockPush).toHaveBeenCalledWith('/')
+expect(screen.queryByTestId('sprint-setup-page')).not.toBeInTheDocument()
+```
+
+---
+
+### SS-10: Admin user with loaded sprint → renders admin view
+
+**File**: `sprintSetup.test.tsx`  
+**AC**: AC-4.1.1, AC-4.1.6
+
+**Setup**:
+```ts
+;(getCurrentUser as jest.Mock).mockReturnValue(mockAdminUser)
+;(getActiveSprint as jest.Mock).mockResolvedValue(mockSprint)
+;(getAllUsers as jest.Mock).mockResolvedValue([mockAdminUser, mockMember])
+```
+
+**Action**:
+```ts
+render(<SprintSetupPage />)
+await waitForPageLoaded()
+```
+
+**Assertions**:
+```ts
+expect(screen.getByTestId('admin-view')).toBeInTheDocument()
+expect(screen.queryByTestId('readonly-view')).not.toBeInTheDocument()
+expect(screen.getByTestId('sprint-name-input')).toBeInTheDocument()
+expect(screen.getByTestId('save-btn')).toBeInTheDocument()
+expect(screen.getByTestId('cancel-btn')).toBeInTheDocument()
+```
+
+---
+
+### SS-11: Non-admin user → renders read-only view
+
+**File**: `sprintSetup.test.tsx`  
+**AC**: AC-4.1.6
+
+**Setup**:
+```ts
+;(getCurrentUser as jest.Mock).mockReturnValue({ ...mockAdminUser, isAdmin: false })
+;(getActiveSprint as jest.Mock).mockResolvedValue(mockSprint)
+;(getAllUsers as jest.Mock).mockResolvedValue([mockAdminUser, mockMember])
+```
+
+**Action**:
+```ts
+render(<SprintSetupPage />)
+await waitFor(() => expect(screen.getByTestId('readonly-view')).toBeInTheDocument())
+```
+
+**Assertions**:
+```ts
+expect(screen.getByTestId('readonly-view')).toBeInTheDocument()
+expect(screen.queryByTestId('admin-view')).not.toBeInTheDocument()
+expect(screen.queryByTestId('sprint-name-input')).not.toBeInTheDocument()
+expect(screen.queryByTestId('save-btn')).not.toBeInTheDocument()
+expect(screen.queryByTestId('add-member-btn')).not.toBeInTheDocument()
+// Sprint name is displayed as plain text
+expect(screen.getByText('Sprint 42')).toBeInTheDocument()
+```
+
+---
+
+### SS-12: Admin view — Save button disabled when Sprint Name is empty
+
+**File**: `sprintSetup.test.tsx`  
+**AC**: AC-4.1.2 (required fields validation)
+
+**Setup**:
+```ts
+;(getCurrentUser as jest.Mock).mockReturnValue(mockAdminUser)
+;(getActiveSprint as jest.Mock).mockResolvedValue(null)  // new sprint — no existing sprint
+;(getAllUsers as jest.Mock).mockResolvedValue([mockAdminUser])
+```
+
+**Action**:
+```ts
+render(<SprintSetupPage />)
+await waitForPageLoaded()
+// Sprint Name is empty on mount (no existing sprint)
+```
+
+**Assertions**:
+```ts
+expect(screen.getByTestId('save-btn')).toBeDisabled()
+// Button label is "Save & Open Retro" for new sprint
+expect(screen.getByTestId('save-btn')).toHaveTextContent('Save & Open Retro')
+```
+
+---
+
+### SS-13: Admin view — Save button enabled after typing sprint name and valid dates
+
+**File**: `sprintSetup.test.tsx`  
+**AC**: AC-4.1.2
+
+**Setup**: same as SS-12 (no existing sprint)
+
+**Action**:
+```ts
+render(<SprintSetupPage />)
+await waitForPageLoaded()
+
+fireEvent.change(screen.getByTestId('sprint-name-input'), { target: { value: 'Sprint 43' } })
+fireEvent.change(screen.getByTestId('start-date-input'), { target: { value: '2023-11-07' } })
+fireEvent.change(screen.getByTestId('end-date-input'), { target: { value: '2023-11-20' } })
+```
+
+**Assertions**:
+```ts
+expect(screen.getByTestId('save-btn')).not.toBeDisabled()
+expect(screen.queryByTestId('date-error')).not.toBeInTheDocument()
+```
+
+---
+
+### SS-14: Admin view — date error shown and Save disabled when `endDate < startDate`
+
+**File**: `sprintSetup.test.tsx`  
+**AC**: AC-4.1.2 (date validation)
+
+**Setup**: admin user + no existing sprint
+
+**Action**:
+```ts
+render(<SprintSetupPage />)
+await waitForPageLoaded()
+
+fireEvent.change(screen.getByTestId('sprint-name-input'), { target: { value: 'Sprint 43' } })
+fireEvent.change(screen.getByTestId('start-date-input'), { target: { value: '2023-11-20' } })
+fireEvent.change(screen.getByTestId('end-date-input'), { target: { value: '2023-11-07' } })
+```
+
+**Assertions**:
+```ts
+expect(screen.getByTestId('date-error')).toBeInTheDocument()
+expect(screen.getByTestId('date-error')).toHaveTextContent('End date must be on or after start date')
+expect(screen.getByTestId('save-btn')).toBeDisabled()
+```
+
+---
+
+### SS-15: Admin view — clicking Save calls `updateSprint`; success message appears
+
+**File**: `sprintSetup.test.tsx`  
+**AC**: AC-4.1.7 (update sprint persistence), AC-4.1.2 (save success feedback)
+
+**Setup**:
+```ts
+;(getCurrentUser as jest.Mock).mockReturnValue(mockAdminUser)
+;(getActiveSprint as jest.Mock).mockResolvedValue(mockSprint)
+;(getAllUsers as jest.Mock).mockResolvedValue([mockAdminUser])
+;(updateSprint as jest.Mock).mockResolvedValue({ ...mockSprint, name: 'Sprint 42 Updated' })
+```
+
+**Action**:
+```ts
+render(<SprintSetupPage />)
+await waitForPageLoaded()
+
+// Sprint name is already pre-filled from mockSprint; dates are valid
+fireEvent.click(screen.getByTestId('save-btn'))
+```
+
+**Assertions**:
+```ts
+await waitFor(() => {
+  expect(updateSprint).toHaveBeenCalledWith(
+    'sp-1',
+    expect.objectContaining({ name: 'Sprint 42' })
+  )
+})
+await waitFor(() => {
+  expect(screen.getByTestId('save-success')).toBeInTheDocument()
+})
+expect(screen.getByTestId('save-success')).toHaveTextContent('Sprint saved.')
+```
+
+> **`openRetro`/`closeRetro` call check**: If `localStatus` (defaults to loaded sprint status `'open'`) equals `updated.status` (`'open'`), neither `openRetro` nor `closeRetro` is called. Assert `openRetro` has NOT been called when status is unchanged:
+```ts
+expect(openRetro).not.toHaveBeenCalled()
+expect(closeRetro).not.toHaveBeenCalled()
+```
+
+---
+
+### SS-16: Admin view — Open and Closed radio buttons are present
+
+**File**: `sprintSetup.test.tsx`  
+**AC**: AC-4.1.4 (retro status toggle UI)
+
+**Setup**: admin user + loaded sprint (`status: 'open'`)
+
+**Action**:
+```ts
+render(<SprintSetupPage />)
+await waitForPageLoaded()
+```
+
+**Assertions**:
+```ts
+expect(screen.getByTestId('status-open')).toBeInTheDocument()
+expect(screen.getByTestId('status-closed')).toBeInTheDocument()
+// Open radio is checked (matches loaded sprint.status)
+expect(screen.getByTestId('status-open')).toBeChecked()
+expect(screen.getByTestId('status-closed')).not.toBeChecked()
+```
+
+---
+
+### SS-17: `feedback/page.tsx` — Submit Feedback button disabled when sprint is closed
+
+**File**: `sprintSetup.test.tsx` (tests `FeedbackPage` component cross-file)  
+**AC**: AC-4.1.5
+
+**Setup**:
+```ts
+// Imports for this test:
+// import FeedbackPage from '@/app/feedback/page'
+// Additional mocks needed:
+jest.mock('@/services/feedbackService', () => ({
+  getFeedbackByLane: jest.fn().mockResolvedValue([]),
+  sortByUpvotes: jest.fn((items) => items),
+  addFeedback: jest.fn(),
+  upvoteFeedback: jest.fn(),
+  getAuthorDisplay: jest.fn(() => 'Jane Doe'),
+}))
+jest.mock('@/services/actionService', () => ({
+  createAction: jest.fn(),
+}))
+jest.mock('@/components/layout/Shell', () => ({
+  __esModule: true,
+  default: ({ children }: { children: React.ReactNode }) => <div>{children}</div>,
+}))
+
+// URL-discriminating fetch: /api/sprints returns CLOSED sprint
+;(global.fetch as jest.Mock) = jest.fn().mockImplementation((url: string) => {
+  if ((url as string).includes('/api/users')) {
+    return Promise.resolve({ ok: true, json: async () => [] })
+  }
+  return Promise.resolve({
+    ok: true,
+    json: async () => ({
+      _id: 'sp-1',
+      name: 'Sprint 42',
+      status: 'closed',
+      teamMemberIds: [],
+      goal: '',
+      startDate: '2023-10-24',
+      endDate: '2023-11-06',
+    }),
+  })
+})
+;(getCurrentUser as jest.Mock).mockReturnValue(mockAdminUser)
+```
+
+**Action**:
+```ts
+render(<FeedbackPage />)
+await waitFor(() => expect(screen.getByTestId('open-modal-btn')).toBeInTheDocument())
+```
+
+**Assertions**:
+```ts
+expect(screen.getByTestId('open-modal-btn')).toBeDisabled()
+// Clicking the disabled button does NOT open the modal
+fireEvent.click(screen.getByTestId('open-modal-btn'))
+expect(screen.queryByTestId('submit-feedback-modal')).not.toBeInTheDocument()
+```
+
+> **`data-testid="submit-feedback-modal"`**: This testid must be confirmed on `SubmitFeedbackModal.tsx`'s container before implementing SS-17. If `SubmitFeedbackModal` does not have this testid, use `queryByRole('dialog')` instead. The primary assertion — `open-modal-btn` is `disabled` — does not depend on this.
+
+> **SS-17 placement**: This test lives in `sprintSetup.test.tsx` because it tests AC-4.1.5 (Sprint 4 AC). It does not belong in `feedbackBoard.test.tsx` as that file tests Sprint 2/3 behaviour. A separate `describe('AC-4.1.5 — Closed retro guard')` block inside `sprintSetup.test.tsx` with its own `beforeEach` provides proper isolation.
+
+---
+
+## Sprint 4 Gap Analysis
+
+### Gap S4-1 — AC-4.1.3 Add Member flow has no automated end-to-end test
+
+**Status**: ⚠️ **Partial gap**
+
+The `handleAddMember` function in `sprint-setup/page.tsx` calls `fetch('/api/users?username=X')`. Full end-to-end testing of add/remove member in `sprintSetup.test.tsx` requires mocking `global.fetch` for the username lookup call in addition to the existing sprint + users fetches.
+
+**SS-10 covers**: member rows are rendered (team member list display from loaded sprint) ✅  
+**Not covered by SS-1–17**: the dynamic "+ Add Member" click → lookup → append flow
+
+**Recommendation**: Add SS-10a (Add Member success path) and SS-10b (Add Member not-found error) as optional additional tests when implementing S4-9. These are deferred from the core 17 tests because the username fetch URL pattern (`?username=X`) requires a third fetch discriminator in the mock.
+
+**Add Member test pattern for SS-10a**:
+```ts
+// After page loaded (admin view):
+;(global.fetch as jest.Mock).mockImplementationOnce((url: string) => {
+  if (url.includes('username=newuser')) {
+    return Promise.resolve({ ok: true, json: async () => [mockNewMember] })
+  }
+})
+fireEvent.change(screen.getByTestId('username-input'), { target: { value: 'newuser' } })
+fireEvent.click(screen.getByTestId('add-member-btn'))
+await waitFor(() => {
+  expect(screen.getAllByTestId('member-row')).toHaveLength(2)
+})
+```
+
+### Gap S4-2 — AC-UI-4.1.x: Visual/layout ACs have no automated coverage
+
+**Status**: ⏳ **Remains open** — same pattern as Sprint 3 Gap S3-4. Cannot be covered by Jest/RTL.
+
+**Recommendation**: Manual visual review against `SetUpSprint.png` during session completion gate.
+
+---
+
+## Sprint 4 Summary
+
+| Category | Count |
+|---|---|
+| Test cases defined (Sprint 4) | 17 (SS-1–SS-8 service/route + SS-9–SS-17 page/integration) |
+| Sprint 1 + Sprint 2 + Sprint 3 test cases (unchanged) | 78 |
+| **Total test cases across Sprint 1 + 2 + 3 + 4** | **95** |
+| ACs with full automated coverage (Sprint 4) | 8 (AC-4.1.1–4.1.2, 4.1.4–4.1.7, 4.1.10) |
+| ACs with partial coverage (Sprint 4) | 2 (AC-4.1.3 — add member flow deferred; AC-4.1.8 — testids confirmed via other tests) |
+| ACs with visual-only coverage (Sprint 4) | AC-UI-4.1.x (gap S4-2, manual review) |
+| Sprint 1–3 tests modified | 0 (none — append only) |
+| New test files created | 2 (`sprintService.test.ts`, `sprintSetup.test.tsx`) |
+| Existing test files extended | 0 |
+| Gaps open | 2 (S4-1 partial — add member flow; S4-2 visual only) |
+
+### Sprint 4 Test Pre-flight Summary
+
+| Item | Status |
+|---|---|
+| `sprintService.ts` exports confirmed: `getActiveSprint`, `createSprint`, `updateSprint`, `openRetro`, `closeRetro` | ✅ From IMPLEMENTATION_PLAN.md S4-3 |
+| `GET /api/sprints` returns object or `[]` — normalisation tested in SS-1 + SS-2 | ✅ |
+| `data-testid="admin-view"` / `"readonly-view"` distinguish admin/non-admin in tests | ✅ SS-10, SS-11 |
+| `data-testid="save-btn"` label is `"Save & Open Retro"` for new sprint, `"Save Changes"` for loaded sprint | ✅ SS-12, SS-15 |
+| `data-testid="open-modal-btn"` in `feedback/page.tsx` — pre-existing from Sprint 2 | ✅ Used in SS-17 |
+| SS-17 requires URL-discriminating fetch mock returning closed sprint from `/api/sprints` | ✅ Scoped `describe` block with own `beforeEach` |
+| FB-1 through FB-16 regression from `feedback/page.tsx` modification | ✅ All existing tests have `mockSprint.status = 'open'` — button remains enabled |
+| `getAllUsers` from `userService` reused — no new service duplication | ✅ |
+| `console.error` pre-existing in `users/route.ts` kept — no cleanup in Sprint 4 | ✅ |
+| `api/users/route.ts` modification backward-compatible — no `?username` param = all users | ✅ |
