@@ -6,11 +6,13 @@ export async function GET(req: NextRequest) {
   try {
     await connectDB()
     const sprintId = req.nextUrl.searchParams.get("sprintId")
-    const query = sprintId ? { sprintId } : {}
-    const actions = await ActionItemModel.find(query).lean()
+    if (!sprintId) {
+      return NextResponse.json({ error: "sprintId is required" }, { status: 400 })
+    }
+    const actions = await ActionItemModel.find({ sprintId }).lean().limit(100)
     return NextResponse.json(actions, { status: 200 })
   } catch (err) {
-    console.error('[GET /api/actions]', err)
+    void err
     return NextResponse.json({ error: 'Database connection failed' }, { status: 500 })
   }
 }
@@ -20,18 +22,18 @@ export async function POST(req: NextRequest) {
     await connectDB()
     const body = await req.json()
 
-    if (!body.sprintId || !body.title || !body.ownerId) {
+    if (!body.title || !body.ownerId || !body.sprintId) {
       return NextResponse.json(
-        { error: "sprintId, title, and ownerId are required" },
+        { error: "title, ownerId, and sprintId are required" },
         { status: 400 }
       )
     }
 
-    const action = new ActionItemModel({ ...body })
+    const action = new ActionItemModel({ ...body, status: 'open' })
     await action.save()
     return NextResponse.json(action, { status: 201 })
   } catch (err) {
-    console.error('[POST /api/actions]', err)
+    void err
     return NextResponse.json({ error: 'Database connection failed' }, { status: 500 })
   }
 }
