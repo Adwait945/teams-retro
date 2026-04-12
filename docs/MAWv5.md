@@ -791,6 +791,35 @@ After all [ ] items are [x]:
 - Do NOT add <style> tags or inline styles — Tailwind utility classes only.
 - Fix your code to match tests, never fix tests to match your code.
 
+## 🏗️ Scalability & Design Pattern Rules (applies to ALL agents — DEV must follow, REVIEWER must enforce)
+
+These are structural constraints that prevent architectural debt from compounding at scale. Every DEV session must follow them. REVIEWER checks 12–17 audit them.
+
+### DB Query Rules
+- **No unbounded queries** — Every `Model.find()` on `feedback`, `actions`, or `users` MUST include a filter (e.g. `{ sprintId }`). Never `Model.find({})` on user-data collections.
+- **No N+1 queries** — Never call `Model.findById()` or `Model.find()` inside a `.map()`, `for`, or `forEach`. Batch with `$in` or pre-fetch before iteration.
+- **Atomic counter/set ops** — Use `$inc` + `$addToSet` in a single `findByIdAndUpdate` for counters and dedup arrays. Never `findById` → JS mutate → `.save()` for fields like `upvotes`/`upvotedBy`.
+- **Index awareness** — Fields used as query filters (`sprintId`, `authorId`, `ownerId`, `status`) must have `index: true` on the Mongoose schema.
+- **Pagination guard** — Every list-returning API route must apply `.limit(100)`. Never return unbounded arrays.
+
+### API Route Rules
+- **`await connectDB()` is always first** — No DB op before it. Never skip assuming connection is cached.
+- **Always wrap in try/catch** — Every route handler must have a top-level try/catch returning `{ error: 'Internal server error' }` with status 500.
+- **No secrets client-side** — `MONGODB_URI` or any `process.env.*` secret must never appear in `src/components/` or client page files.
+
+### React / Component Rules
+- **No Mongoose imports in components** — All data comes via `fetch('/api/...')` through the service layer. Never import from `src/lib/models/` in a component.
+- **useEffect cleanup** — Every `useEffect` with a `fetch` call must use `AbortController` and `return () => controller.abort()`.
+- **No missing dependency arrays** — Every `useEffect` must have an explicit `[]` or `[dep]` array.
+- **Loading + error states required** — Every component that fetches data must have `loading: boolean` and `error: string | null` states. Never render data without a loading guard.
+- **No console.log in production** — `console.log/warn/error` forbidden in `src/` outside test files.
+
+### Service Layer Rules
+- **Validate before fetch** — Service functions for POST/PATCH must validate required fields and `throw` before calling `fetch()`.
+- **Never swallow errors** — Re-throw on non-OK response. Never `return null` silently on a 4xx/5xx.
+
+---
+
 ## ⛔ BLOCKED COMMANDS — CARBON BLACK APP CONTROL — DO NOT RUN, DO NOT RETRY
 The following are permanently blocked by 7-Eleven Carbon Black endpoint protection.
 Do NOT attempt them. Do NOT try alternate paths. Do NOT loop through fallback variants. Stop and report.

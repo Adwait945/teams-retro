@@ -157,6 +157,33 @@ Minimum checklist after any `layout.tsx` change:
 
 If any setting is missing: restore it immediately. Do NOT defer to another session or agent.
 
+## Scalability & Design Pattern Rules (non-negotiable)
+
+These rules prevent architectural bottlenecks that compound at scale. Violating any of them is a DEV constraint failure, not a style suggestion.
+
+### DB Query Rules
+- **No unbounded queries**: Every `Model.find()` on a user-data collection (`feedback`, `actions`, `users`) MUST include a query filter (e.g. `{ sprintId }`). Never `Model.find({})` on these collections.
+- **No N+1 queries**: Never call `Model.findById()` or `Model.find()` inside a loop or `.map()`. Batch lookups before iteration or use `$in` queries.
+- **Atomic counter/set ops**: Always use `$inc` + `$addToSet` in a single `findByIdAndUpdate` for counters and dedup arrays. Never `findById` → mutate in JS → `save()` for fields that need atomicity (e.g. `upvotes`, `upvotedBy`).
+- **Index awareness**: Any field used as a query filter in production code (`sprintId`, `authorId`, `ownerId`, `status`) must have an index defined on the Mongoose schema (`index: true`). If the schema doesn't have it, add it.
+- **Pagination guard**: Any API route returning a list (`Model.find(...)`) MUST apply `.limit()` — maximum 100 items. Never return unbounded arrays.
+
+### API Route Rules
+- **`await connectDB()` is always first**: No DB operation before `await connectDB()`. Never skip it assuming the connection is cached.
+- **Always wrap in try/catch**: Every API route must have a top-level try/catch returning `{ error: 'Internal server error' }` with status 500. Never let unhandled DB errors surface as 500 without a message.
+- **No secrets client-side**: `MONGODB_URI`, `NEXTAUTH_SECRET`, or any `process.env.*` secret must never appear in `src/components/`, `src/app/[page]/page.tsx` (client files), or any file without `'use server'`.
+
+### React / Component Rules
+- **No direct Mongoose imports in components**: Components never import from `src/lib/models/`. All data comes via `fetch('/api/...')` through the service layer.
+- **useEffect cleanup**: Every `useEffect` that sets state must check if the component is still mounted, OR use an `AbortController` for `fetch` calls. Pattern: `const controller = new AbortController(); fetch(..., { signal: controller.signal }); return () => controller.abort()`.
+- **No missing dependency arrays**: Every `useEffect` must have an explicit dependency array `[]` or `[dep1, dep2]`. Never omit it.
+- **Loading + error states required**: Every component that calls `fetch` must have both `loading: boolean` and `error: string | null` states. Never render fetched data without a loading guard.
+- **No console.log in production**: `console.log`, `console.warn`, `console.error` are forbidden in `src/` (outside test files). Use error returns instead.
+
+### Service Layer Rules
+- **Validate before fetch**: Service functions that call mutating APIs (POST, PATCH) must validate required fields and `throw` before calling `fetch()` if validation fails. Never send a request you know will fail.
+- **Never swallow errors**: Service functions must either re-throw on non-OK response or return a typed error result. Never `return null` silently on a 4xx/5xx.
+
 ## File Size Rules
 - **Hard limit**: No file exceeds 200 lines
 - If a file approaches 150 lines, split into subcomponents
