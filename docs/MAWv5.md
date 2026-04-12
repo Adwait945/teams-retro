@@ -18,6 +18,22 @@ There are **three environments** you'll work in. Every step is labeled so you al
 | 🖥️ | **Windsurf (Local)** | Your desktop IDE with Enterprise AI credits. This is the "engineering floor." All 5 AI agents run here with full power — reading files, writing code, running tests, executing terminal commands. |
 | 🐙 | **GitHub** | The bridge between Replit and Windsurf. It's a cloud-based storage locker for your code. You push code up from one environment and pull it down into the other. |
 
+> 🚫 **CRITICAL — Windows Corporate Execution Policy (applies to ALL agents)**
+> This machine blocks the following commands via PowerShell. **No agent should ever attempt these — skip them entirely and do NOT retry with alternate paths:**
+> - `npx` — blocked: "cannot be loaded because running scripts is disabled on this system"
+> - `node_modules\.bin\tsc` — blocked: "Access is denied"
+> - `node_modules\.bin\jest` — blocked: "Access is denied"
+> - `node node_modules/typescript/bin/tsc` — blocked: endpoint protection
+> - Any `.cmd` file in `node_modules/.bin/` — blocked by endpoint protection
+>
+> **The only commands that work on this machine:**
+> - `corepack yarn test` — runs Jest (configured in package.json as `"test": "jest"`)
+> - `corepack yarn tsc --noEmit` — type check via corepack
+> - `corepack yarn build` — production build via corepack
+> - `git` commands — always work
+>
+> If `corepack yarn test` also fails due to execution policy, **STOP. Do NOT try alternative paths.** Report the failure and wait for human input. Never loop through fallback command variants.
+
 ---
 
 ## The Big Picture (Read This First)
@@ -774,7 +790,19 @@ After all [ ] items are [x]:
 - Do NOT add <style> tags or inline styles — Tailwind utility classes only.
 - Fix your code to match tests, never fix tests to match your code.
 
-When done, run: corepack yarn vitest run && corepack yarn tsc --noEmit && corepack yarn build
+## ⛔ BLOCKED COMMANDS — DO NOT RUN, DO NOT RETRY
+The following are permanently blocked by Windows corporate endpoint protection on this machine.
+Do NOT attempt them. Do NOT try alternate paths like `node_modules/.bin/tsc` or `node node_modules/...`.
+Do NOT loop through fallback variants. If you hit a blocked command, stop and report.
+- `npx tsc --noEmit` → BLOCKED
+- `npx jest` → BLOCKED
+- `node_modules\.bin\tsc` → BLOCKED (Access denied)
+- `node_modules\.bin\jest` → BLOCKED (Access denied)
+- Any `.cmd` wrapper in node_modules/.bin/ → BLOCKED
+
+Use ONLY: `corepack yarn test` | `corepack yarn tsc --noEmit` | `corepack yarn build`
+
+When done, run: corepack yarn test && corepack yarn tsc --noEmit && corepack yarn build
 ```
 
 3. **Review the output.** Did all tests pass? Does `corepack yarn build` succeed? Read `IMPLEMENTATION_NOTES.md` for any deviations.
@@ -937,12 +965,16 @@ For EACH check below, output: ✅ PASS or ❌ FAIL with a specific explanation.
 
 ### Run These Commands
 ```
-corepack yarn vitest run
+corepack yarn test
 corepack yarn tsc --noEmit
 corepack yarn build
 corepack yarn lint
 grep -rn "TODO\|FIXME\|placeholder" src/ --include="*.ts" --include="*.tsx"
 ```
+
+> ⛔ **BLOCKED on this machine — do NOT run:**
+> `npx tsc`, `npx jest`, `node_modules\.bin\tsc`, `node_modules\.bin\jest`, any `.cmd` in node_modules/.bin/
+> If `corepack yarn` commands also fail, STOP — do not loop through fallback paths. Report and await human input.
 
 ## Output
 Write docs/AUDIT_REPORT.md with:
