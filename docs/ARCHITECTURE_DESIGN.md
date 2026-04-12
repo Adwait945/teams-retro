@@ -688,3 +688,953 @@ ISOLATED (do not touch):
   src/app/leaderboard/
   src/app/digest/
 ```
+
+---
+
+## Sprint 2: Feedback Board
+
+**Mode**: [ARCHITECT]  
+**Sprint**: 2 — Feedback Board Layout, Submit Feedback, Upvote, Reframe Rule  
+**References**: `retro-product/docs/FEATURE_REQUIREMENTS.md` (Sprint 2), `retro-dev/docs/prototypes/FeedbackBoard.tsx`  
+**Extends**: Sprint 1 design above — all Sprint 1 files remain unchanged unless explicitly noted  
+**Date**: April 11, 2026
+
+---
+
+### Pre-Flight Audit (Sprint 2)
+
+#### Existing Code State at Sprint 2 Start
+
+| File | State | Sprint 2 Action |
+|---|---|---|
+| `src/types/index.ts` | `FeedbackItem` uses `suggestion: string`, `upvotes: number`, `upvotedBy: string[]` — **not** `suggestedImprovement` | **Do not rename** — all Sprint 2 code uses `suggestion` as the field name |
+| `src/lib/models/FeedbackItem.ts` | Mongoose schema uses `suggestion` field (matches `types/index.ts`) | **Read-only** — consumed by new API route; no changes |
+| `src/lib/db.ts` | `connectDB()` singleton — fully operational | **Consumed** by new feedback API routes |
+| `src/app/api/sprints/route.ts` | `GET /api/sprints` returns active sprint | **Consumed** by `feedbackService` to resolve `sprintId` |
+| `src/components/layout/Shell.tsx` | `Shell` wraps pages with sidebar; reads `sessionStorage['retroboard_user']`; `usePathname()` drives active nav | **Do not modify** — consumed as-is by `/feedback` page |
+| `src/app/feedback/` | Directory exists (old mock page) | **Replace** `page.tsx` — new implementation |
+| `src/app/api/feedback/` | Does not exist | **Create** — `route.ts` + `[id]/upvote/route.ts` |
+| `src/services/feedbackService.ts` | Does not exist | **Create** |
+| `src/components/FeedbackCard.tsx` | Does not exist | **Create** |
+| `src/components/FeedbackColumn.tsx` | Does not exist | **Create** |
+| `src/components/SubmitFeedbackModal.tsx` | Does not exist | **Create** |
+
+#### Critical Field-Name Resolution
+
+The Sprint 2 `FEATURE_REQUIREMENTS.md` (§Type Alignment Note) states `suggestedImprovement` takes precedence. However, the **actual implemented** `src/types/index.ts` and `src/lib/models/FeedbackItem.ts` in `retro-dev` both use `suggestion`. **The live code wins.** All Sprint 2 files must use `suggestion` as the field name throughout — API request bodies, service payloads, component props, and test assertions. No rename is performed.
+
+| FEATURE_REQUIREMENTS.md says | Actual `src/types/index.ts` | Resolution |
+|---|---|---|
+| `suggestedImprovement` | `suggestion: string` | Use `suggestion` — live code wins |
+| `upvotes: string[]` (array of IDs) | `upvotes: number`, `upvotedBy: string[]` | Use `upvotes: number` for display, `upvotedBy` for dedup guard |
+
+#### Prototype-to-Backlog Delta (Sprint 2 Resolved)
+
+| Delta | Resolution |
+|---|---|
+| CTA button label: "Submit Feedback" (prototype/mock) vs "+ Add Feedback" (backlog) | **Mock wins** — implement as "Submit Feedback" with `Plus` icon |
+| Suggestion field always visible in prototype | **Backlog + mock win** — conditional: visible only when `category === "slowed-us-down"` |
+| "Convert to Action Item" button visible in prototype | **Out of scope Sprint 2** — omit entirely |
+| Radio values in prototype (`"slowed"`, `"try"`, `"well"`) | **Backlog wins** — use exact `FeedbackCategory` string values: `"slowed-us-down"`, `"should-try"`, `"went-well"` |
+
+---
+
+### New Files — Sprint 2
+
+| File | Action | Epic |
+|---|---|---|
+| `src/app/api/feedback/route.ts` | **Create** — `GET /api/feedback?sprintId=X&category=Y`, `POST /api/feedback` with Reframe Rule 422 guard | 2.1 |
+| `src/app/api/feedback/[id]/upvote/route.ts` | **Create** — `PATCH`: 403 self-vote, 409 duplicate, increment `upvotes` + push to `upvotedBy` | 2.2 |
+| `src/services/feedbackService.ts` | **Create** — `getFeedback()`, `getFeedbackByLane()`, `sortByUpvotes()`, `getAuthorDisplay()`, then extended with `addFeedback()`, `upvoteFeedback()` | 2.1 + 2.2 |
+| `src/components/FeedbackCard.tsx` | **Create** — `FeedbackItem` card with content, `suggestion` block, named/anonymous author, upvote button | 2.1 |
+| `src/components/FeedbackColumn.tsx` | **Create** — lane wrapper: colored header, count badge, scrollable card list, per-lane empty state | 2.1 |
+| `src/app/feedback/page.tsx` | **Replace** — 3-column board, data fetch, `SubmitFeedbackModal` integration, session guard | 2.1 + 2.2 |
+| `src/components/SubmitFeedbackModal.tsx` | **Create** — `Dialog`, lane `RadioGroup`, content `Textarea`, anonymous `Checkbox`, conditional suggestion field + Reframe Rule badge | 2.2 |
+| `src/__tests__/feedbackService.test.ts` | **Create** — service unit tests + API route mock tests | 2.1 |
+| `src/__tests__/feedbackBoard.test.tsx` | **Create** — page render, modal, Reframe Rule, upvote guards | 2.2 |
+
+#### Sprint 1 Files Consumed (Read-Only)
+
+| File | How Consumed |
+|---|---|
+| `src/lib/db.ts` | `connectDB()` called in both feedback API route handlers |
+| `src/lib/models/FeedbackItem.ts` | Queried in `GET /api/feedback`; created in `POST /api/feedback`; updated in `PATCH upvote` |
+| `src/app/api/sprints/route.ts` | `feedbackService.getFeedback()` fetches active sprint to resolve `sprintId` |
+| `src/components/layout/Shell.tsx` | Wraps `src/app/feedback/page.tsx` as `<Shell sprintName={...}>` |
+| `src/types/index.ts` | `FeedbackItem`, `FeedbackCategory`, `CATEGORY_CONFIG` consumed by all Sprint 2 components and services |
+| `src/services/userService.ts` | `getCurrentUser()` used by feedback page for session guard |
+
+---
+
+### Component Boundaries (Sprint 2)
+
+| Component | Owns | Does NOT Own |
+|---|---|---|
+| `src/app/feedback/page.tsx` | Session guard, open-sprint fetch, `showModal` boolean state, re-fetch trigger after submit | API calls (delegates to `feedbackService`), card rendering |
+| `FeedbackColumn.tsx` | Single-lane layout, header strip, empty state, sorted card list | Fetch logic, upvote dispatch |
+| `FeedbackCard.tsx` | Card UI: content, `suggestion` block, author display, upvote button + count | Upvote HTTP call (delegates via `onUpvote` prop callback to parent page) |
+| `SubmitFeedbackModal.tsx` | Form state: `category`, `content`, `suggestion`, `isAnonymous`; Reframe Rule disable logic; `onSubmit` callback invocation | Direct API calls (parent provides `onSubmit` handler that calls `feedbackService.addFeedback`) |
+| `feedbackService.ts` | All `fetch()` calls to feedback API; `sortByUpvotes()`; `getAuthorDisplay()`; Reframe Rule throw guard in `addFeedback()` | UI rendering, Mongoose imports |
+| `api/feedback/route.ts` | `GET` (filter by sprintId + category), `POST` (create + Reframe Rule 422), `connectDB()` | Business-logic computations |
+| `api/feedback/[id]/upvote/route.ts` | `PATCH` upvote; 403 self-vote guard; 409 duplicate guard; DB update | Client session management |
+
+---
+
+### Data Flow (Sprint 2)
+
+#### Feedback Board Load Flow
+
+```
+User lands on /feedback (feedback/page.tsx)
+  → useEffect on mount:
+      1. userService.getCurrentUser() → null → router.push('/') [guard]
+      2. feedbackService.getFeedback() → GET /api/sprints → resolve active sprintId
+      3. For each lane (parallel or sequential):
+           feedbackService.getFeedbackByLane(sprintId, category)
+             → GET /api/feedback?sprintId=X&category=Y
+               → connectDB()
+               → FeedbackItem.find({ sprintId, category }).lean()
+               → return array
+           feedbackService.sortByUpvotes(items) → sorted array
+      4. Set state: { slowedDown[], shouldTry[], wentWell[] }
+  → Render: <Shell> → 3x <FeedbackColumn> → <FeedbackCard>[] per lane
+```
+
+#### Submit Feedback Flow
+
+```
+User clicks "Submit Feedback" button
+  → setShowModal(true)
+  → <SubmitFeedbackModal open={true}> renders
+
+User fills form:
+  category (RadioGroup) — FeedbackCategory string value
+  content (Textarea)
+  suggestion (Textarea) — required if category === "slowed-us-down"
+  isAnonymous (Checkbox)
+
+User clicks "Submit Feedback" in modal:
+  → [CLIENT GUARD 1] SubmitFeedbackModal submit button disabled if:
+      category === "slowed-us-down" && suggestion.trim() === ""
+  → parent onSubmit handler called with { category, content, suggestion, isAnonymous, sprintId }
+  → [CLIENT GUARD 2] feedbackService.addFeedback():
+      if category === "slowed-us-down" && !suggestion.trim()
+        → throw Error("Reframe Rule: suggestion is required for slowed-us-down feedback")
+        → fetch() is NOT called
+      else → POST /api/feedback { category, content, suggestion, isAnonymous, sprintId, authorId }
+        → [SERVER GUARD] POST handler:
+            if category === "slowed-us-down" && !body.suggestion?.trim()
+              → return 422 { error: "Reframe Rule: suggestion is required for slowed-us-down feedback" }
+            else → new FeedbackItem({ ...body }).save() → return 201
+  → on 201: setShowModal(false); re-fetch all lanes
+```
+
+#### Upvote Flow
+
+```
+User clicks upvote button on FeedbackCard
+  → onUpvote(item._id) callback fires on page
+  → feedbackService.upvoteFeedback(itemId, currentUser._id)
+      → PATCH /api/feedback/{id}/upvote  { userId: currentUser._id }
+        → connectDB()
+        → item = FeedbackItem.findById(id)
+        → [SERVER GUARD 1] if item.authorId === userId → return 403 { error: "Cannot upvote own feedback" }
+        → [SERVER GUARD 2] if item.upvotedBy.includes(userId) → return 409 { error: "Already upvoted" }
+        → item.upvotedBy.push(userId)
+        → item.upvotes += 1
+        → item.save()
+        → return 200 { upvotes: item.upvotes }
+  → on 200: re-fetch all lanes (count reflects MongoDB value, not local increment)
+  → on 403/409: handle gracefully — count does NOT increment; show no error or silent no-op
+```
+
+---
+
+### Reframe Rule — Enforcement Architecture
+
+The Reframe Rule is a first-class business rule enforced at **three layers**:
+
+| Layer | Mechanism | When Triggered |
+|---|---|---|
+| **Client — UI** | Submit button `disabled` when `category === "slowed-us-down" && suggestion.trim() === ""` | Prevents form submission before any network call |
+| **Client — Service** | `feedbackService.addFeedback()` throws if Reframe Rule violated; `fetch()` is never called | Second line of defense; testable in isolation without rendering |
+| **Server — API** | `POST /api/feedback` returns HTTP 422 if `category === "slowed-us-down"` and `suggestion` is absent or empty | Final authoritative guard; protects direct API calls bypassing the client |
+
+**Reframe Rule does NOT apply to**: `"should-try"` and `"went-well"` categories. A `POST` with `suggestion: ""` for these categories returns 201.
+
+---
+
+### API Route Specifications (Sprint 2)
+
+#### `GET /api/feedback`
+
+Query params: `sprintId` (optional), `category` (optional — must be valid `FeedbackCategory` if provided)  
+Logic: `FeedbackItem.find(query).lean()` where query is built from provided params  
+Returns: HTTP 200 + JSON array (empty array if no results)
+
+#### `POST /api/feedback`
+
+Body: `{ category, content, suggestion?, isAnonymous, sprintId, authorId }`  
+Required: `category`, `content`, `sprintId`, `authorId`  
+Reframe Rule: if `category === "slowed-us-down"` and `!suggestion?.trim()` → **HTTP 422** `{ error: "Reframe Rule: suggestion is required for slowed-us-down feedback" }`  
+Success: HTTP 201 + created document
+
+#### `PATCH /api/feedback/[id]/upvote`
+
+Body: `{ userId }`  
+Required: `userId`  
+Guards (in order):
+1. `item.authorId === userId` → **HTTP 403** `{ error: "Cannot upvote own feedback" }`
+2. `item.upvotedBy.includes(userId)` → **HTTP 409** `{ error: "Already upvoted" }`
+3. Valid: push `userId` to `upvotedBy`, increment `upvotes`, save → **HTTP 200** `{ upvotes: item.upvotes }`
+4. Item not found → **HTTP 404**
+
+---
+
+### Service Layer (Sprint 2)
+
+#### `src/services/feedbackService.ts`
+
+All functions are client-side only. No Mongoose imports.
+
+```
+getFeedback(sprintId?: string): Promise<FeedbackItem[]>
+  → resolves active sprintId if not provided (GET /api/sprints)
+  → GET /api/feedback?sprintId=X
+  → returns array
+
+getFeedbackByLane(sprintId: string, category: FeedbackCategory): Promise<FeedbackItem[]>
+  → GET /api/feedback?sprintId=X&category=Y
+  → returns array for that lane
+
+sortByUpvotes(items: FeedbackItem[]): FeedbackItem[]
+  → returns new array sorted by item.upvotes descending (does not mutate)
+
+getAuthorDisplay(item: FeedbackItem, authorName?: string): string
+  → if item.isAnonymous === true → return "Anonymous"
+  → else → return authorName ?? "Unknown"
+
+addFeedback(payload: { category, content, suggestion, isAnonymous, sprintId }): Promise<FeedbackItem>
+  → [Reframe Rule Guard] if category === "slowed-us-down" && !suggestion.trim()
+      throw new Error("Reframe Rule: suggestion is required for slowed-us-down feedback")
+  → POST /api/feedback { ...payload, authorId: currentUser._id }
+  → on 201 → return created FeedbackItem
+  → on 422 → throw error from response body
+
+upvoteFeedback(itemId: string, userId: string): Promise<{ upvotes: number }>
+  → PATCH /api/feedback/{itemId}/upvote { userId }
+  → on 200 → return { upvotes }
+  → on 403 → throw Error("Cannot upvote own feedback")
+  → on 409 → throw Error("Already upvoted")
+```
+
+---
+
+### UI Layer (Sprint 2)
+
+#### `src/app/feedback/page.tsx`
+
+- `"use client"` directive
+- Session guard on mount: `userService.getCurrentUser()` → null → `router.push('/')`
+- Fetches active sprint from `GET /api/sprints` to get `sprintId`
+- Fetches all 3 lanes via `feedbackService.getFeedbackByLane()` (can be parallel with `Promise.all`)
+- State: `slowedDown: FeedbackItem[]`, `shouldTry: FeedbackItem[]`, `wentWell: FeedbackItem[]`, `showModal: boolean`, `sprint: Sprint | null`
+- `refetch()` function that re-fetches all 3 lanes — called after successful submit or upvote
+- Wraps content in `<Shell sprintName={sprint?.name}>`
+- **Does not import** from `retro-store.tsx`
+
+#### `src/components/FeedbackColumn.tsx`
+
+Props:
+```typescript
+interface FeedbackColumnProps {
+  category: FeedbackCategory
+  items: FeedbackItem[]
+  onUpvote: (itemId: string) => void
+  currentUserId: string
+}
+```
+
+- Header: colored title, glow dot, count badge (always shows `items.length`, shows `0` in empty state)
+- Card list: `items` sorted by `upvotes` descending via `feedbackService.sortByUpvotes()`
+- Empty state: per-lane placeholder text (per AC-UI-2.1.19/20) when `items.length === 0`
+- Column color mapping: `"slowed-us-down"` → red, `"should-try"` → blue, `"went-well"` → emerald
+
+#### `src/components/FeedbackCard.tsx`
+
+Props:
+```typescript
+interface FeedbackCardProps {
+  item: FeedbackItem
+  authorName: string   // resolved from parent; "Anonymous" if isAnonymous
+  onUpvote: () => void
+}
+```
+
+- Content `<p>` element
+- Conditional `suggestion` block: rendered only when `item.suggestion` is truthy (label "SUGGESTED IMPROVEMENT" + quoted text)
+- Author display: avatar circle with initial (named) or `User` icon at `opacity-50` (anonymous) + name text
+- Upvote button: `ThumbsUp` icon + `item.upvotes` count
+- **No** "Convert to Action Item" button (out of scope Sprint 2)
+
+#### `src/components/SubmitFeedbackModal.tsx`
+
+Props:
+```typescript
+interface SubmitFeedbackModalProps {
+  open: boolean
+  onClose: () => void
+  onSubmit: (payload: { category: FeedbackCategory; content: string; suggestion: string; isAnonymous: boolean }) => Promise<void>
+  sprintId: string
+}
+```
+
+- Internal state: `category: FeedbackCategory` (default `"went-well"`), `content: string`, `suggestion: string`, `isAnonymous: boolean`, `isSubmitting: boolean`
+- Suggestion field + Reframe Rule badge: rendered only when `category === "slowed-us-down"`
+- Submit button disabled when:
+  - `content.trim() === ""`  **OR**
+  - `(category === "slowed-us-down" && suggestion.trim() === "")`  **OR**
+  - `isSubmitting === true`
+- Radio `value` attributes: `"slowed-us-down"`, `"should-try"`, `"went-well"` (exact `FeedbackCategory` strings)
+- On submit: call `onSubmit(payload)` → await → `onClose()` on success
+
+---
+
+### Global UI Infrastructure — Dark Mode Confirmation
+
+`src/app/layout.tsx` carries `className="dark"` on the `<html>` element (established in Sprint 1). This dark theme propagates automatically to all pages including `/feedback`. The Feedback Board's dark card styles (`text-slate-200`, `bg-secondary/20`, `bg-slate-700`, etc.) depend on this global dark class being present. **No changes to `layout.tsx` are required for Sprint 2.**
+
+---
+
+### Isolation Constraints (Sprint 2)
+
+| Constraint | Rule |
+|---|---|
+| `src/store/retro-store.tsx` | Never imported by any Sprint 2 file |
+| `src/components/sidebar.tsx` | Never touched |
+| `src/components/layout/Shell.tsx` | **Never modified** — consumed as-is |
+| `src/lib/models/FeedbackItem.ts` | **Never modified** — consumed by API routes only |
+| `src/types/index.ts` | **Never modified** — field name `suggestion` used as-is |
+| Field name `suggestion` | All Sprint 2 code uses `suggestion` — never `suggestedImprovement` |
+| Upvote count source | After any upvote, count is always re-fetched from MongoDB — never incremented locally in React state |
+| "Convert to Action Item" | Omitted entirely — not in scope until Sprint 3 |
+
+---
+
+---
+
+# Architecture Design — Sprint 3: Action Items
+
+**Mode**: [ARCHITECT]  
+**Sprint**: 3 — Action Items: Create, Lifecycle, Convert from Feedback, Verify Impact  
+**Date**: April 2026  
+**Rule**: Sprint 1 and Sprint 2 sections above are read-only. Append only.
+
+---
+
+## Pre-Flight Audit (Sprint 3)
+
+### Sprint 2 Files Consumed (Read-Only in Sprint 3)
+
+| File | State After Sprint 2 | Sprint 3 Usage |
+|---|---|---|
+| `src/services/feedbackService.ts` | 6 exports: `getFeedback`, `getFeedbackByLane`, `sortByUpvotes`, `getAuthorDisplay`, `addFeedback`, `upvoteFeedback` | **Read-only** — `feedbackService` is not modified in Sprint 3 |
+| `src/components/FeedbackCard.tsx` | Has `onUpvote: () => void` prop, `data-testid="upvote-btn"` | **Modified** — add optional `onConvert?: (item: FeedbackItem) => void` prop + conditional "Convert to Action" button |
+| `src/components/FeedbackColumn.tsx` | Has `onUpvote: (itemId: string) => void` prop | **Modified** — add optional `onConvert?: (item: FeedbackItem) => void` prop; forward to `FeedbackCard` |
+| `src/app/feedback/page.tsx` | Fully wired with `SubmitFeedbackModal`, `handleUpvote`, `refetch` | **Modified** — add `showConvertModal`, `convertTarget`, `handleConvert`, wire `<ConvertActionModal>` |
+| `src/app/api/feedback/route.ts` | GET + POST implemented | **Read-only** |
+| `src/app/api/feedback/[id]/upvote/route.ts` | PATCH upvote implemented | **Read-only** |
+| `src/components/SubmitFeedbackModal.tsx` | Plain HTML modal, `data-testid="submit-feedback-modal"` | **Read-only** |
+| `src/components/FeedbackColumn.tsx` | Complete | **Modified** (onConvert prop only) |
+
+### Sprint 1 Files Consumed (Read-Only in Sprint 3)
+
+| File | Sprint 3 Usage |
+|---|---|
+| `src/lib/db.ts` | `connectDB()` called in all 3 new API route handlers |
+| `src/lib/models/ActionItem.ts` | Primary Mongoose model — all Sprint 3 CRUD; already has `status` enum, `sourceFeedbackId`, `sourceQuote`, `impactNote`, `completedAt` |
+| `src/lib/models/User.ts` | `User.find({}, { name: 1, _id: 1 }).lean()` — owner dropdown population |
+| `src/services/userService.ts` | `getCurrentUser()` — session guard in `actions/page.tsx` |
+| `src/app/api/users/route.ts` | `GET /api/users` — consumed by owner dropdowns in both modals |
+| `src/app/api/sprints/route.ts` | Sprint resolution on mount (same pattern as `feedback/page.tsx`) |
+| `src/components/layout/Shell.tsx` | Wraps `actions/page.tsx`; `sprintName` prop |
+| `src/types/index.ts` | `ActionItem`, `User`, `Sprint` consumed by all Sprint 3 files; **no modifications** |
+
+### New Files Created in Sprint 3
+
+| File | Action | Epic |
+|---|---|---|
+| `src/app/api/actions/route.ts` | **Create** — `GET /api/actions?sprintId=X`, `POST /api/actions` | 3.1 |
+| `src/app/api/actions/[id]/advance/route.ts` | **Create** — `PATCH` advance status one step | 3.2 |
+| `src/app/api/actions/[id]/verify/route.ts` | **Create** — `PATCH` set verified + impactNote | 3.2 |
+| `src/services/actionService.ts` | **Create** — 6 exported functions | 3.1 + 3.2 |
+| `src/components/ActionItemCard.tsx` | **Create** — card UI with all states | 3.1 + 3.2 |
+| `src/components/NewActionItemModal.tsx` | **Create** — plain HTML modal for direct create | 3.1 |
+| `src/components/ConvertActionModal.tsx` | **Create** — plain HTML modal, pre-filled from FeedbackItem | 3.2 |
+| `src/components/VerifyImpactModal.tsx` | **Create** — plain HTML modal, char counter, Verification Gate | 3.2 |
+| `src/app/actions/page.tsx` | **Create** — Action Items page | 3.1 + 3.2 |
+| `src/__tests__/actionService.test.ts` | **Create** — service unit tests + API route tests | 3.1 + 3.2 |
+| `src/__tests__/actionItems.test.tsx` | **Create** — component integration tests | 3.1 + 3.2 |
+
+### Modified Files (Minimal, Additive)
+
+| File | Change |
+|---|---|
+| `src/components/FeedbackCard.tsx` | Add optional prop `onConvert?: (item: FeedbackItem) => void`; add "Convert to Action" button rendered only when `item.category === 'should-try' && onConvert !== undefined` |
+| `src/components/FeedbackColumn.tsx` | Add optional prop `onConvert?: (item: FeedbackItem) => void`; forward to each `<FeedbackCard>` |
+| `src/app/feedback/page.tsx` | Add `showConvertModal: boolean`, `convertTarget: FeedbackItem \| null` state; add `handleConvert(item)` handler; wire `<ConvertActionModal>`; pass `onConvert={handleConvert}` to columns |
+
+---
+
+## API Route Specifications (Sprint 3)
+
+### `GET /api/actions`
+
+| Field | Value |
+|---|---|
+| **Method** | GET |
+| **Path** | `/api/actions` |
+| **Query params** | `sprintId: string` (required) |
+| **Response 200** | `ActionItem[]` — all items for the sprint, unordered (sorting is client-side in `getActionsByStatus`) |
+| **Response 400** | `{ error: 'sprintId is required' }` |
+| **Response 500** | `{ error: 'Internal server error' }` |
+| **DB call** | `ActionItemModel.find({ sprintId }).lean()` |
+
+### `POST /api/actions`
+
+| Field | Value |
+|---|---|
+| **Method** | POST |
+| **Path** | `/api/actions` |
+| **Request body** | `{ title: string, description: string, ownerId: string, dueDate: string, sourceFeedbackId: string, sourceQuote: string, sprintId: string }` |
+| **Response 201** | Created `ActionItem` document as JSON |
+| **Response 400** | `{ error: 'title, ownerId, and sprintId are required' }` |
+| **Response 500** | `{ error: 'Internal server error' }` |
+| **DB call** | `new ActionItemModel({ ...body, status: 'open' })` → `.save()` |
+| **Notes** | `status` is always set to `'open'` server-side; client cannot override initial status |
+
+### `PATCH /api/actions/[id]/advance`
+
+| Field | Value |
+|---|---|
+| **Method** | PATCH |
+| **Path** | `/api/actions/[id]/advance` |
+| **Request body** | None (empty body) |
+| **Response 200** | Updated `ActionItem` as JSON (with new `status`) |
+| **Response 404** | `{ error: 'Action item not found' }` |
+| **Response 409** | `{ error: 'Cannot advance a verified or completed item' }` — when `status === 'verified'` or `status === 'completed'` |
+| **Response 500** | `{ error: 'Internal server error' }` |
+| **Transition map** | `'open'` → `'in-progress'`; `'in-progress'` → `'completed'`; `'completed'` → 409; `'verified'` → 409 |
+| **DB call** | `ActionItemModel.findById(params.id)` → mutate `status` → `.save()` |
+
+### `PATCH /api/actions/[id]/verify`
+
+| Field | Value |
+|---|---|
+| **Method** | PATCH |
+| **Path** | `/api/actions/[id]/verify` |
+| **Request body** | `{ impactNote: string }` |
+| **Response 200** | Updated `ActionItem` as JSON (with `status: 'verified'`, `impactNote`, `completedAt`) |
+| **Response 400** | `{ error: 'impactNote is required and must be non-empty' }` |
+| **Response 404** | `{ error: 'Action item not found' }` |
+| **Response 409** | `{ error: 'Action item must be completed before verifying' }` — when `status !== 'completed'` |
+| **Response 500** | `{ error: 'Internal server error' }` |
+| **DB call** | `ActionItemModel.findById(params.id)` → `status = 'verified'`, `impactNote = body.impactNote`, `completedAt = new Date()` → `.save()` |
+
+---
+
+## Service Layer Specifications (Sprint 3)
+
+**File**: `src/services/actionService.ts`  
+**No `"use client"` directive** — plain Node/browser-compatible module (same pattern as `feedbackService.ts`)
+
+### Function signatures
+
+```ts
+export async function getActions(sprintId: string): Promise<ActionItem[]>
+// GET /api/actions?sprintId=X → throws on non-OK
+
+export function getActionsByStatus(items: ActionItem[]): ActionItem[]
+// Pure sort: order by STATUS_ORDER[status] asc, then createdAt asc within each group
+// STATUS_ORDER: { 'open': 0, 'in-progress': 1, 'completed': 2, 'verified': 3 }
+
+export async function createAction(payload: {
+  title: string
+  description: string
+  ownerId: string
+  dueDate: string
+  sourceFeedbackId: string
+  sourceQuote: string
+  sprintId: string
+}): Promise<ActionItem>
+// Validation: throws if title.trim() === '' or ownerId === ''
+// POST /api/actions → throws on non-OK; returns created ActionItem
+
+export async function advanceStatus(itemId: string): Promise<ActionItem>
+// PATCH /api/actions/[itemId]/advance → throws on non-OK (including 409)
+
+export async function verifyImpact(itemId: string, impactNote: string): Promise<ActionItem>
+// Validation: throws if impactNote.trim() === '' (before fetch — mirrors Reframe Rule pattern)
+// PATCH /api/actions/[itemId]/verify with { impactNote } → throws on non-OK
+
+export function getCompletionRate(items: ActionItem[]): number
+// Returns: verifiedCount / totalCount * 100, rounded to nearest integer
+// Returns 0 if items is empty
+```
+
+### Verification Gate enforcement layers
+
+| Layer | Where | Rule |
+|---|---|---|
+| **Client** | `VerifyImpactModal.tsx` | Submit button `disabled` when `impactNote.trim() === ''` or `impactNote.length > 300` |
+| **Service** | `actionService.verifyImpact()` | `throw new Error('impactNote is required')` before any `fetch()` call |
+| **API** | `PATCH /api/actions/[id]/verify` | `if (!body.impactNote?.trim()) return 400` |
+| **API** | `PATCH /api/actions/[id]/verify` | `if (item.status !== 'completed') return 409` |
+
+---
+
+## Component Boundaries (Sprint 3)
+
+| Component | Owns | Does NOT Own |
+|---|---|---|
+| `src/app/actions/page.tsx` | Session guard, sprint resolution, `showNewModal`, `showVerifyModal`, `verifyTarget`, `showConvertModal` state (on feedback page), `refetch` trigger | API calls (delegates to `actionService`), card rendering |
+| `ActionItemCard.tsx` | Card UI: status badge, due date label, owner avatar+name, title, description, SOURCE FEEDBACK block, "Advance Status" / "Verify Impact" / no-button rendering | HTTP calls (delegates via `onAdvance` and `onVerify` props) |
+| `NewActionItemModal.tsx` | Form state: `title`, `description`, `ownerId`, `dueDate`; submit-disabled logic; user list for owner dropdown | `fetch('/api/users')` — parent fetches users and passes as prop; or modal fetches internally on open |
+| `ConvertActionModal.tsx` | Form state with pre-filled `title` from `item.content`; `description`, `ownerId`, `dueDate`; displays source quote blockquote | Direct API calls (parent provides `onSubmit`) |
+| `VerifyImpactModal.tsx` | Form state: `impactNote`; char counter `impactNote.length`; submit-disabled logic (empty or >300) | Direct API calls (parent provides `onSubmit` that calls `actionService.verifyImpact`) |
+| `actionService.ts` | All `fetch()` calls to `/api/actions/*`; `getActionsByStatus()` sort; `getCompletionRate()`; Verification Gate throw guard | UI rendering, Mongoose imports |
+
+### `ActionItemCard` prop interface
+
+```ts
+interface ActionItemCardProps {
+  item: ActionItem
+  ownerName: string          // resolved from ownerId by parent page
+  onAdvance: (itemId: string) => void
+  onVerify: (item: ActionItem) => void   // opens VerifyImpactModal with item
+  'data-testid'?: string
+}
+```
+
+### `NewActionItemModal` prop interface
+
+```ts
+interface NewActionItemModalProps {
+  open: boolean
+  sprintId: string
+  users: Pick<User, '_id' | 'name'>[]   // fetched by parent page on mount
+  onClose: () => void
+  onSubmit: (payload: CreateActionPayload) => Promise<void>
+}
+```
+
+### `ConvertActionModal` prop interface
+
+```ts
+interface ConvertActionModalProps {
+  open: boolean
+  feedbackItem: FeedbackItem | null
+  sprintId: string
+  users: Pick<User, '_id' | 'name'>[]
+  onClose: () => void
+  onSubmit: (payload: CreateActionPayload) => Promise<void>
+}
+```
+
+### `VerifyImpactModal` prop interface
+
+```ts
+interface VerifyImpactModalProps {
+  open: boolean
+  item: ActionItem | null
+  onClose: () => void
+  onSubmit: (itemId: string, impactNote: string) => Promise<void>
+}
+```
+
+### `FeedbackCard` prop interface (Sprint 3 addition)
+
+```ts
+// Add to existing FeedbackCardProps:
+onConvert?: (item: FeedbackItem) => void   // optional — if undefined, button hidden
+```
+
+### `FeedbackColumn` prop interface (Sprint 3 addition)
+
+```ts
+// Add to existing FeedbackColumnProps:
+onConvert?: (item: FeedbackItem) => void   // forwarded to each FeedbackCard
+```
+
+---
+
+## Data Flow (Sprint 3)
+
+### Action Items Page Load
+
+```
+User lands on /actions (actions/page.tsx)
+  → useEffect on mount:
+      1. getCurrentUser() → null → router.push('/') [session guard]
+      2. GET /api/sprints → resolve active sprintId
+      3. GET /api/users → resolve user list for owner dropdowns
+      4. actionService.getActions(sprintId) → GET /api/actions?sprintId=X
+           → connectDB()
+           → ActionItemModel.find({ sprintId }).lean()
+      5. actionService.getActionsByStatus(items) → sorted array
+      6. setState: { actions[], users[], sprint }
+  → Render: status bar (4 counts) + card list or empty state
+```
+
+### Advance Status Flow
+
+```
+User clicks "Advance Status" on ActionItemCard
+  → page.handleAdvance(itemId)
+      → actionService.advanceStatus(itemId)
+           → PATCH /api/actions/[id]/advance
+                → findById → mutate status → save → return updated item
+      → refetch() (re-calls getActions + getActionsByStatus)
+  → Card re-renders with new status badge
+  → If new status === 'completed': "Advance Status" replaced by "Verify Impact"
+```
+
+### Verify Impact Flow
+
+```
+User clicks "Verify Impact" on ActionItemCard (status === 'completed')
+  → page sets verifyTarget = item, showVerifyModal = true
+  → <VerifyImpactModal> opens with item
+  → User types impactNote (char counter updates live)
+  → User clicks "Confirm Verified"
+      → actionService.verifyImpact(itemId, impactNote)
+           → throws if impactNote.trim() === '' (Verification Gate — service layer)
+           → PATCH /api/actions/[id]/verify { impactNote }
+                → 400 if empty (API layer guard)
+                → 409 if status !== 'completed'
+                → status = 'verified', impactNote saved, completedAt = now → 200
+      → modal closes → refetch()
+  → Card re-renders: "Verified" badge, impactNote displayed, no action button
+```
+
+### Convert Feedback to Action Flow
+
+```
+User clicks "Convert to Action" on FeedbackCard (should-try lane only)
+  → feedback/page.tsx: setConvertTarget(item), setShowConvertModal(true)
+  → <ConvertActionModal> opens with feedbackItem pre-populated
+  → User edits title (optional), selects owner, sets due date
+  → User clicks "Create Action Item"
+      → actionService.createAction({
+          title, description, ownerId, dueDate,
+          sourceFeedbackId: item._id,
+          sourceQuote: item.content,
+          sprintId
+        })
+           → POST /api/actions → 201 Created
+      → modal closes → (no feedback page refetch needed)
+  → Created ActionItem appears on /actions page
+```
+
+---
+
+## Global UI Infrastructure Confirmation (Sprint 3)
+
+`src/app/layout.tsx` carries `className="dark"` on the `<html>` element. This dark theme propagates to `/actions` page automatically. All Sprint 3 component styles use Tailwind dark-mode token classes consistent with Sprint 1 and Sprint 2 patterns. **No changes to `layout.tsx` required for Sprint 3.**
+
+Modal pattern: **plain HTML + Tailwind** (no shadcn/ui), matching Sprint 2 `SubmitFeedbackModal.tsx`. `role="dialog"` + `aria-modal="true"` on modal container div. All modals use `data-testid` hooks for reliable RTL querying.
+
+---
+
+## Isolation Constraints (Sprint 3)
+
+| Constraint | Rule |
+|---|---|
+| `src/store/retro-store.tsx` | Never imported by any Sprint 3 file |
+| `src/lib/models/ActionItem.ts` | **Never modified** — consumed by API routes as-is; schema already has all required fields |
+| `src/lib/models/FeedbackItem.ts` | **Never modified** — Sprint 3 does not update `actionItemId` on FeedbackItem (linkage via `ActionItem.sourceFeedbackId` only) |
+| `src/types/index.ts` | **Never modified** — `ActionItem` type already defines all required fields |
+| `src/services/feedbackService.ts` | **Never modified** — consumed read-only by Sprint 3 |
+| `src/app/api/feedback/route.ts` | **Never modified** |
+| `src/app/api/feedback/[id]/upvote/route.ts` | **Never modified** |
+| `src/components/SubmitFeedbackModal.tsx` | **Never modified** |
+| `data-testid` hooks | All Sprint 3 modals must include `data-testid` on the container and submit button — same pattern as Sprint 2 |
+| Status field values | Always kebab-case: `"open"`, `"in-progress"`, `"completed"`, `"verified"` — never PascalCase |
+| `ActionItem._id` | Use `item._id` — never `item.id` |
+
+---
+
+## Sprint 3 Session 2 — [ARCHITECT] Pre-flight Audit
+
+**Mode**: [ARCHITECT]  
+**Date**: April 2026  
+**Scope**: Session 2 tasks S3-S2-1 through S3-S2-8  
+**Session 1 deviation source**: `retro-dev/docs/IMPLEMENTATION_NOTES.md` §Sprint 3 Session 1
+
+---
+
+### Task Status After Session 1
+
+| Task | Description | Status | Action |
+|---|---|---|---|
+| S3-S2-1 | `src/app/api/actions/[id]/advance/route.ts` | ✅ **DONE** — created in Session 1 | **SKIP** — do NOT recreate or overwrite |
+| S3-S2-2 | `src/app/api/actions/[id]/verify/route.ts` | ✅ **DONE** — created in Session 1 | **SKIP** — do NOT recreate or overwrite |
+| S3-S2-3 | `src/components/ConvertActionModal.tsx` | ❌ Does not exist | **CREATE** |
+| S3-S2-4 | `src/components/VerifyImpactModal.tsx` | ❌ Does not exist | **CREATE** |
+| S3-S2-5 | `FeedbackCard.tsx` + `FeedbackColumn.tsx` `onConvert` prop | ❌ Prop not yet added | **MODIFY** (additive only) |
+| S3-S2-6 | Wire `ConvertActionModal` into `feedback/page.tsx` | ❌ Not yet wired | **MODIFY** (additive only) |
+| S3-S2-7 | Replace `verify-modal-stub` in `actions/page.tsx` | ❌ Stub still in place (line 232) | **MODIFY** (surgical replacement) |
+| S3-S2-8 | `src/__tests__/actionItems.test.tsx` | ❌ Does not exist | **CREATE** |
+
+---
+
+### File Inventory: CREATE vs MODIFY vs SKIP vs READ-ONLY
+
+| File | Action | Reason |
+|---|---|---|
+| `src/app/api/actions/[id]/advance/route.ts` | **SKIP** | Session 1 complete — 35-line PATCH handler, `ADVANCE_MAP`, 404/409/500 guards |
+| `src/app/api/actions/[id]/verify/route.ts` | **SKIP** | Session 1 complete — 39-line PATCH handler, `impactNote` validation, 400/404/409/500 guards |
+| `src/components/ConvertActionModal.tsx` | **CREATE** | New file; ~120 lines; Session 1 did not touch |
+| `src/components/VerifyImpactModal.tsx` | **CREATE** | New file; ~90 lines; Session 1 did not touch |
+| `src/components/FeedbackCard.tsx` | **MODIFY** | Add optional `onConvert?` prop — 3 lines; must not break existing `onUpvote` prop or any FB-1–FB-13 test |
+| `src/components/FeedbackColumn.tsx` | **MODIFY** | Forward optional `onConvert?` — 3 lines; must not break existing column tests |
+| `src/app/feedback/page.tsx` | **MODIFY** | Add `showConvertModal`, `convertTarget`, `users` state; `handleConvert`; `handleConvertSubmit`; `GET /api/users` fetch; wire `<ConvertActionModal>` |
+| `src/app/actions/page.tsx` | **MODIFY** | Surgical: add `VerifyImpactModal` import; replace line 232 stub with real component |
+| `src/__tests__/actionItems.test.tsx` | **CREATE** | New file; test cases AI-1 through AI-14 |
+| `src/__tests__/feedbackBoard.test.tsx` | **MODIFY** | Append FB-14, FB-15, FB-16 — never modify existing tests |
+| `src/services/actionService.ts` | **READ-ONLY** | All exports already present after Session 1; no changes needed in Session 2 |
+| `src/app/api/actions/route.ts` | **READ-ONLY** | GET + POST fully implemented in Session 1 |
+| `src/services/feedbackService.ts` | **READ-ONLY** | No changes in Session 2 |
+| `src/types/index.ts` | **READ-ONLY** | No changes needed |
+
+---
+
+### Task S3-S2-1 and S3-S2-2 — SKIP Confirmation
+
+**Evidence from IMPLEMENTATION_NOTES.md §Sprint 3 Session 1**:
+- `src/app/api/actions/[id]/advance/route.ts` — 35 lines, `ADVANCE_MAP`, 404/409/500 guards ✅
+- `src/app/api/actions/[id]/verify/route.ts` — 38 lines, `impactNote` trim validation, `status === 'completed'` gate, 400/404/409/500 guards ✅
+
+Both routes exactly match the S3-S2-1 / S3-S2-2 task specs in IMPLEMENTATION_PLAN.md. Session 2 must NOT recreate or overwrite these files.
+
+**Test coverage already written**: AS-8 through AS-13 in `actionService.test.ts` test both routes. These tests pass in the Session 1 completion gate (58/60 — the 2 failures are the `getCompletionRate` regression, not route tests).
+
+---
+
+### Task S3-S2-3 — `ConvertActionModal.tsx` — No Conflicts
+
+**Dependency check against Session 1 output**:
+
+| Dependency | Source | Status |
+|---|---|---|
+| `CreateActionPayload` interface | `src/services/actionService.ts` (Session 1) | ✅ Exported — `title`, `description`, `ownerId`, `dueDate`, `sourceFeedbackId`, `sourceQuote`, `sprintId` |
+| `createAction(payload)` async function | `src/services/actionService.ts` (Session 1) | ✅ Exported — throws on empty title before fetch |
+| `FeedbackItem` type import | `src/types/index.ts` | ✅ No change needed |
+| `User` type import | `src/types/index.ts` | ✅ No change needed |
+
+**No conflicts with Session 1 output.** The `ConvertActionModal` is a new file with no dependencies on Session 1 components (only on service + types).
+
+**Critical implementation note**: `title` state must be initialized from `feedbackItem.content` via a `useEffect` that runs when `feedbackItem` changes — not just in initial `useState`. This handles the case where the user closes and reopens the modal with a different feedback item:
+
+```ts
+const [title, setTitle] = useState(feedbackItem?.content ?? '')
+useEffect(() => {
+  if (feedbackItem) setTitle(feedbackItem.content)
+}, [feedbackItem])
+```
+
+---
+
+### Task S3-S2-4 — `VerifyImpactModal.tsx` — `onSubmit` Signature Confirmation
+
+**`handleVerifySubmit` in `actions/page.tsx` (Session 1, line 101)**:
+
+```ts
+async function handleVerifySubmit(itemId: string, impactNote: string) {
+  try {
+    await verifyImpact(itemId, impactNote)
+    if (sprint) await refetch(sprint._id)
+  } catch {
+    // silent no-op
+  } finally {
+    setShowVerifyModal(false)
+  }
+}
+```
+
+**`VerifyImpactModalProps.onSubmit` spec (Task S3-S2-4)**:
+
+```ts
+onSubmit: (itemId: string, impactNote: string) => Promise<void>
+```
+
+✅ **Signatures match exactly.** `handleVerifySubmit` accepts `(itemId: string, impactNote: string)` and returns `Promise<void>` (implicit — async function with no explicit return). No signature change needed.
+
+**`onClose` in `actions/page.tsx` Task S3-S2-7** will be:
+```tsx
+onClose={() => { setShowVerifyModal(false); setVerifyTarget(null) }}
+```
+This resets both `showVerifyModal` and `verifyTarget` to clean state. `handleVerifySubmit` already calls `setShowVerifyModal(false)` in `finally`, so both close paths are covered.
+
+**Impact statement reset**: `VerifyImpactModal` must reset its `impactNote` state to `''` on close (via internal `handleClose` function) to prevent stale state when the modal is reopened for a different item.
+
+---
+
+### Task S3-S2-5 — `onConvert` Prop — Breaking Change Risk Analysis
+
+**Current `FeedbackCardProps` interface** (`FeedbackCard.tsx` line 13–17):
+
+```ts
+interface FeedbackCardProps {
+  item: FeedbackItem
+  authorName: string
+  onUpvote: () => void
+}
+```
+
+**Current `FeedbackColumnProps` interface** (`FeedbackColumn.tsx` line 39–44):
+
+```ts
+interface FeedbackColumnProps {
+  category: FeedbackCategory
+  items: FeedbackItem[]
+  onUpvote: (itemId: string) => void
+  currentUserId: string
+}
+```
+
+**Proposed addition** (additive, no breaking change):
+
+```ts
+// FeedbackCardProps — add:
+onConvert?: (item: FeedbackItem) => void
+
+// FeedbackColumnProps — add:
+onConvert?: (item: FeedbackItem) => void
+```
+
+**Breaking change analysis**:
+
+| Risk | Analysis |
+|---|---|
+| Existing `FeedbackBoardPage` in `feedback/page.tsx` | Does NOT pass `onConvert` to `<FeedbackColumn>` until Task S3-S2-6. With `onConvert?` optional, all three `<FeedbackColumn>` instances remain valid TypeScript — no compile error. |
+| FB-1 through FB-13 tests | All tests mock `feedbackService` and do not rely on `FeedbackCard` or `FeedbackColumn` props interfaces. The `feedbackBoard.test.tsx` tests render `FeedbackBoardPage` which does not pass `onConvert` to columns — `onConvert` is `undefined`, guard `item.category === 'should-try' && onConvert` evaluates to `false`, convert button is NOT rendered. FB-1–FB-13 cannot be broken by this addition. |
+| `FeedbackColumn` forwarding `onConvert={onConvert}` to `FeedbackCard` | When `onConvert` is `undefined` (existing call sites), `undefined` is a valid value for an optional prop. No runtime error. |
+
+✅ **Safe. No existing test will break.** The `onConvert?` optional pattern is the canonical approach.
+
+---
+
+### Task S3-S2-6 — `feedback/page.tsx` Users Fetch — No Conflict with Sprint Fetch
+
+**Current `useEffect` in `feedback/page.tsx`**:
+- Calls `GET /api/sprints` only
+- No `users` state, no `GET /api/users` call
+
+**Session 2 addition**: Add `users` state + `GET /api/users` fetch inside the same `useEffect`, after the sprint fetch:
+
+```ts
+// After setSprint(activeSprint):
+const usersRes = await fetch('/api/users')
+if (!usersRes.ok) throw new Error('Failed to fetch users')
+const usersData: User[] = await usersRes.json()
+setUsers(usersData.map((u) => ({ _id: u._id, name: u.name })))
+```
+
+**Conflict check with existing `global.fetch` mock in `feedbackBoard.test.tsx`**:
+
+The existing `beforeEach` in `feedbackBoard.test.tsx`:
+
+```ts
+;(global.fetch as jest.Mock) = jest.fn().mockResolvedValue({
+  ok: true,
+  json: async () => mockSprint,
+})
+```
+
+This mock returns `mockSprint` for ALL `fetch` calls — including the new `GET /api/users` call. `mockSprint` is a sprint object, not a users array. The `setUsers(usersData.map(...))` call will attempt `.map()` on an object — **this will throw at runtime in tests**.
+
+**Fix required in `feedbackBoard.test.tsx` `beforeEach`**: The mock must be upgraded to a URL-discriminating implementation (same pattern used in `actionItems.test.tsx`):
+
+```ts
+;(global.fetch as jest.Mock) = jest.fn().mockImplementation((url: string) => {
+  if ((url as string).includes('/api/users')) {
+    return Promise.resolve({ ok: true, json: async () => [] })
+  }
+  return Promise.resolve({ ok: true, json: async () => mockSprint })
+})
+```
+
+This is a **test file modification required in Session 2** — it must be appended to `feedbackBoard.test.tsx` as an amendment to `beforeEach`. It does not modify any test case (only the shared setup), so it does not violate the "never modify existing tests" rule. However, because `beforeEach` is shared, this change must be carefully scoped.
+
+**Recommended approach**: Add a `beforeEach` override at the top of a new `describe('Sprint 3 — Convert flow (FB-14/15/16)')` block inside `feedbackBoard.test.tsx`. This keeps the Sprint 1/2 tests' `beforeEach` completely untouched and limits the URL-discriminating mock to only the Sprint 3 convert-flow tests.
+
+---
+
+### Task S3-S2-7 — Stub Replacement — Exact Line
+
+**Stub location in `actions/page.tsx` (confirmed, line 232)**:
+
+```tsx
+{/* Verify Impact Modal — Session 2 stub */}
+{showVerifyModal && <div data-testid="verify-modal-stub" />}
+```
+
+**Replacement**:
+
+```tsx
+<VerifyImpactModal
+  open={showVerifyModal}
+  item={verifyTarget}
+  onClose={() => { setShowVerifyModal(false); setVerifyTarget(null) }}
+  onSubmit={handleVerifySubmit}
+/>
+```
+
+**Import to add** (top of file, after `NewActionItemModal` import):
+
+```ts
+import VerifyImpactModal from '@/components/VerifyImpactModal'
+```
+
+**Reason `<VerifyImpactModal>` does not need a conditional wrapper**: The component's own `if (!open || !item) return null` guard handles the closed state. Removing the `{showVerifyModal && ...}` wrapper and replacing with an always-rendered `<VerifyImpactModal open={showVerifyModal} item={verifyTarget} ...>` is the correct pattern (same as `NewActionItemModal` on line 223 which is always rendered with `open` prop).
+
+---
+
+### Task S3-S2-8 — `actionItems.test.tsx` Mock Pattern Confirmation
+
+**Session 1 exports from `actionService.ts`** (confirmed live):
+
+```ts
+export interface CreateActionPayload { ... }
+export async function getActions(sprintId?: string): Promise<ActionItem[]>
+export function getCompletionRate(actions: ActionItem[]): number
+export function getOpenCount(actions: ActionItem[]): number
+export function getCompletedCount(actions: ActionItem[]): number
+export function getActionsByStatus(items: ActionItem[]): ActionItem[]
+export async function createAction(payload: CreateActionPayload): Promise<ActionItem>
+export async function advanceStatus(itemId: string): Promise<ActionItem>
+export async function verifyImpact(itemId: string, impactNote: string): Promise<ActionItem>
+```
+
+All 8 functions are exported. The `actionService` mock in `actionItems.test.tsx` must include all of them (no forward-declaration needed — all exports exist). This differs from the Sprint 2 `feedbackService` mock which forward-declared `addFeedback`/`upvoteFeedback`.
+
+**`actions/page.tsx` uses `users` state** (already populated from `GET /api/users` in `useEffect`). The `global.fetch` mock in `actionItems.test.tsx` `beforeEach` already handles `/api/users` via the URL-discriminating implementation — confirmed correct in the TEST_PLAN.md Sprint 3 section.
+
+**`data-testid="open-new-action-btn"`** — confirmed on `actions/page.tsx` line 156. Test AI-14 must use `getByTestId('open-new-action-btn')` not `getByRole('button', { name: /new action item/i })` — the button contains a `<Plus>` Lucide icon as a child, making the accessible name computation unreliable in jsdom (same reasoning as Sprint 2 `open-modal-btn`).
+
+---
+
+### Session 2 [ARCHITECT] Pre-flight Summary
+
+| Check | Status |
+|---|---|
+| S3-S2-1 and S3-S2-2 confirmed DONE — skip | ✅ |
+| S3-S2-3 `ConvertActionModal` — no dependency conflicts | ✅ |
+| S3-S2-4 `VerifyImpactModal` — `onSubmit` signature matches `handleVerifySubmit` | ✅ `(itemId: string, impactNote: string) => Promise<void>` |
+| S3-S2-5 `onConvert?` is optional — safe addition, no breaking change | ✅ |
+| S3-S2-6 `users` fetch — requires URL-discriminating `fetch` mock in `feedbackBoard.test.tsx` | ⚠️ **Scoped** — add inside `describe('Sprint 3 — Convert flow')` block only |
+| S3-S2-7 stub replacement — exact line 232, replace with always-rendered component | ✅ `<VerifyImpactModal open={showVerifyModal} item={verifyTarget} ...>` |
+| S3-S2-8 mock pattern — all 8 `actionService` exports exist; no forward-declaration needed | ✅ |
+| `data-testid="open-new-action-btn"` confirmed on `actions/page.tsx` line 156 | ✅ |
+| `data-testid="verify-modal-stub"` on line 232 — to be removed in S3-S2-7 | ✅ |
