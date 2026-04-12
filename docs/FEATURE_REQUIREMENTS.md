@@ -806,3 +806,331 @@ The following ACs were not explicitly written in the original Sprint 3 Epic 3.1/
 | New ACs AC-3.1.4a, AC-3.2.1a, AC-3.2.2a added to close gaps S3-2 and S3-3 | ✅ Added |
 | `data-testid` values for all Session 2 modals confirmed | ✅ `"convert-action-modal"`, `"convert-action-submit-btn"`, `"verify-impact-modal"`, `"verify-impact-submit-btn"`, `"new-action-modal"`, `"new-action-submit-btn"`, `"open-new-action-btn"`, `"convert-btn"`, `"advance-btn"`, `"verify-btn"` |
 | Session 1 deliverables that Session 2 depends on | ✅ All present: `advance/route.ts`, `verify/route.ts`, `handleVerifySubmit`, `verifyTarget` state, `ActionItemCard`, `NewActionItemModal` |
+
+---
+
+---
+
+# Sprint 4 — Feature Requirements
+
+**Sprint goal**: The admin (first registered user) can set up a sprint with a name, goal, and date range; add team members; and open or close the retro. Non-admin users see a read-only view of sprint info.  
+**Theme**: Sprint configuration, team management, open/close retro controls  
+**Scope**: Scope 2 MVP — DEV Session 1 (single session)  
+**Prerequisite**: Sprint 3 complete and merged
+
+---
+
+## Epic 4.1 — Sprint Setup Page
+
+### User Story
+
+> As an admin, I want to configure the current sprint and manage team membership, so that the tool knows who is participating and what the sprint is working toward.
+
+---
+
+## Acceptance Criteria (Full Specifications)
+
+### AC-4.1.1 — Page renders at `/sprint-setup`
+
+**Route**: `/sprint-setup`  
+**Component**: `src/app/sprint-setup/page.tsx`  
+**Session guard**: `getCurrentUser()` returns `null` → `router.push('/')` (redirect to login). No flash of content.  
+**Shell wrapper**: Yes — `<Shell sprintName={sprint?.name}>` wraps the page content, matching the pattern used by `/feedback` and `/actions`.  
+**Nav link**: `"Sprint Setup"` nav item in `Shell` sidebar, active when pathname is `/sprint-setup`. Uses the gear icon (⚙ Lucide `Settings`) to match the mock's icon row.  
+**`data-testid`**: `"sprint-setup-page"` on the outermost content wrapper div (inside Shell).  
+**Layout**: `max-w-[600px] mx-auto` centred column, matching the prototype. Page title: **"Set Up Sprint"** (`h1`). Subtitle: **"Configure your retro session before your team joins."**  
+
+---
+
+### AC-4.1.2 — Admin sets Sprint Name, Goal, Start Date, End Date
+
+**Form section label**: "Basic Info" (visually unlabelled section — fields grouped in a `retro-card` container).
+
+| Field | Element | `data-testid` | Required | Validation | Max length | Placeholder |
+|---|---|---|---|---|---|---|
+| Sprint Name | `<input type="text">` | `"sprint-name-input"` | ✅ Yes | Non-empty after trim | 100 chars | `"e.g. Sprint 42"` |
+| Sprint Goal | `<textarea rows={2}>` | `"sprint-goal-input"` | ❌ No | None | 500 chars | `"What was this sprint trying to achieve?"` |
+| Start Date | `<input type="date">` | `"start-date-input"` | ✅ Yes | Non-empty; must be ≤ End Date | — | — |
+| End Date | `<input type="date">` | `"end-date-input"` | ✅ Yes | Non-empty; must be ≥ Start Date | — | — |
+
+**Date validation rule**: If `endDate < startDate`, the **Save** button is disabled and an inline error `"End date must be on or after start date"` is shown below the date row. Error is cleared immediately when the condition is resolved.  
+**`data-testid="date-error"`** on the error paragraph.
+
+**Save button**:
+- Label: **"Save Changes"** (when an existing sprint is loaded)
+- Label: **"Save & Open Retro"** (when no existing sprint exists — creating new)
+- `data-testid="save-btn"`
+- Disabled when: Sprint Name is empty OR Start Date is empty OR End Date is empty OR `endDate < startDate` OR `isSaving` is true
+- On click: calls `sprintService.updateSprint(id, payload)` if sprint exists, or `sprintService.createSprint(payload)` if no sprint. On success: shows inline success message `"Sprint saved."` for 2 seconds then clears.
+- `data-testid="save-success"` on the success message span.
+
+**Cancel button**:
+- Label: **"Cancel"**
+- `data-testid="cancel-btn"`
+- Resets all form state to the last-loaded sprint values (or empty if no sprint loaded). Does NOT navigate away.
+
+**Field styling** (plain HTML + Tailwind, no shadcn):
+- All inputs/textarea: `bg-secondary/50 border border-border/50 rounded-md px-3 py-2 text-sm w-full focus:outline-none focus:ring-2 focus:ring-amber-500/50`
+- Labels: `text-sm font-medium text-slate-300 mb-1 block`
+- Dates: two-column grid `grid grid-cols-2 gap-4`
+
+---
+
+### AC-4.1.3 — Admin adds and removes team members by username
+
+**Section heading**: "Team Members"
+
+**Member row display** (for each resolved member in `teamMemberIds`):
+- Avatar: initials circle (`w-8 h-8 rounded-full bg-slate-700 border border-border`) showing first two uppercase initials of `user.name`
+- Primary text: `user.name` (resolved from user lookup)
+- Secondary text: `user.pod` (resolved from user lookup — displayed as-is, e.g. "Pod 1")
+- Remove button: Lucide `Trash2` icon (`h-4 w-4`), ghost style (`text-red-400 hover:text-red-300 hover:bg-red-950/30 h-8 w-8 rounded`)
+- `data-testid="remove-member-btn"` on each remove button (RTL uses index or combined with member name for selection)
+- `data-testid="member-row"` on each member row container
+
+**Add Member form** (admin only):
+- Username input: `<input type="text">`, `placeholder="Enter username…"`, `data-testid="username-input"`
+- **Pod dropdown is omitted** — pod is a field on the `User` model, not on the sprint. The pod shown in the member row is read from the resolved user record.
+- "+ Add Member" button: `data-testid="add-member-btn"`, blue background (`bg-blue-600 hover:bg-blue-700 text-white`)
+
+**Username lookup flow**:
+1. User types a username and clicks "+ Add Member"
+2. `GET /api/users?username={value}` is called
+3. **Not found** (empty array returned): show inline error `"User not found"` (`data-testid="member-error"`) below the input; clear on next keystroke
+4. **Already in list** (duplicate `_id` already in `teamMemberIds` local state): show inline error `"User already added"` (`data-testid="member-error"`)
+5. **Found and not duplicate**: append `{ _id, name, pod }` to resolved members local state; append `_id` to `teamMemberIds`; clear the input field
+6. `isSaving` during lookup: "+ Add Member" button shows `"Adding…"` and is disabled
+
+**Remove member flow**:
+- Clicking the trash icon removes the user from local `teamMemberIds` state and the displayed member list immediately (optimistic)
+- The removal is persisted only when **Save Changes** is clicked
+
+**Persistence**: `teamMemberIds` is included in the `updateSprint()` call payload when Save is clicked.
+
+**Edge cases**:
+- Empty username input → "+ Add Member" button is disabled (no API call)
+- Self-removal: admin can remove themselves from `teamMemberIds` (no restriction)
+- Maximum team size: no hard limit in Sprint 4
+
+---
+
+### AC-4.1.4 — Admin can open or close the retro (status toggle)
+
+**Section heading**: "Retro Status"  
+**UI element**: Two radio-button rows (plain HTML `<input type="radio">` — no shadcn `RadioGroup`)
+
+| Radio option | Value | `data-testid` | Visual indicator | Caption |
+|---|---|---|---|---|
+| Open | `"open"` | `"status-open"` | Emerald glowing dot (`w-2 h-2 rounded-full bg-emerald-500 shadow-[0_0_8px_rgba(16,185,129,0.8)]`) | "Team can submit feedback" |
+| Closed | `"closed"` | `"status-closed"` | Slate dot (`w-2 h-2 rounded-full bg-slate-500`) | "Read-only mode" |
+
+**Behaviour**:
+- Selected radio reflects current `sprint.status` on page load
+- Changing the radio updates local state immediately
+- Status is **NOT** saved immediately on radio change — it is included in the Save button flow
+- On Save click: if `status` changed, calls `sprintService.openRetro(id)` or `sprintService.closeRetro(id)` after the field update call completes, OR the status is saved as part of `updateSprint` payload — see AC-4.1.7 for resolution
+
+> **Implementation delta**: The prototype save button says "Save & Open Retro" — this label applies only when creating a new sprint (no `_id` yet). Once a sprint is loaded, the button reads "Save Changes". Status changes are always part of the same Save action.
+
+**`data-testid="retro-status-section"`** on the section container.
+
+---
+
+### AC-4.1.5 — Closed retro disables feedback submission
+
+**File**: `src/app/feedback/page.tsx` (surgical modification)  
+**Condition**: `sprint?.status === 'closed'`
+
+**Disabled elements**:
+- `"Submit Feedback"` button (`data-testid="open-modal-btn"`) — `disabled` attribute set; cursor `not-allowed`; opacity reduced (`opacity-50`)
+- `SubmitFeedbackModal` must NOT open when retro is closed: `onClick` handler checks `sprint?.status !== 'closed'` before calling `setShowModal(true)`
+
+**No error message** shown — the button is silently disabled (same pattern as disabled buttons elsewhere in the app). A tooltip or aria-label `"Feedback submission is closed"` is added on the button for accessibility when disabled.
+
+**Non-closed states**: Button behaves exactly as today for `status === 'open'` and for `sprint === null` (no active sprint — button remains enabled so user can attempt submission; the modal will show `sprintId: ''` which is the existing fallback).
+
+**Existing tests**: FB-1 through FB-16 must not break. The guard is additive — `sprint` state in tests is `mockSprint` with `status: 'open'` in all existing tests, so the button remains enabled. Sprint 4 adds new test SS-x covering the closed state.
+
+---
+
+### AC-4.1.6 — Non-admin read-only view
+
+**Admin determination**: `getCurrentUser().isAdmin === true`. Admin = first registered user (set by `POST /api/users` when `count === 0`).
+
+**Non-admin rendering** (read-only mode):
+
+| Element | Non-admin behaviour |
+|---|---|
+| Sprint Name | Plain `<p>` text, no input |
+| Sprint Goal | Plain `<p>` text, no textarea |
+| Start Date / End Date | Plain `<p>` text, no date inputs |
+| Retro Status | Labelled read-only badge (`"Open"` / `"Closed"`), no radio buttons |
+| Team Members list | Displayed (member rows without trash icon) |
+| Add Member form | Hidden entirely |
+| Save / Cancel buttons | Hidden entirely |
+
+**Page is accessible to non-admins** — no redirect for non-admins. The page loads and shows sprint info in read-only format. This lets all team members check who is on the team and what the sprint goal is.
+
+**`data-testid="readonly-view"`** on the read-only container (used by tests to assert non-admin state).  
+**`data-testid="admin-view"`** on the admin form container (used by tests to assert admin state).
+
+---
+
+### AC-4.1.7 — Sprint data persists via `sprintService`
+
+**Page load strategy** (`getActiveSprint` flow):
+1. On mount, calls `sprintService.getActiveSprint()` → `GET /api/sprints` (returns the open sprint or `[]`/`null`)
+2. If an open sprint is returned: populate all form fields with existing values; set `isNewSprint = false`
+3. If no sprint returned (null or empty array): all fields start empty; `isNewSprint = true`; Save button reads "Save & Open Retro"
+
+**Create vs Update resolution**:
+- `isNewSprint === true`: Save calls `sprintService.createSprint({ name, goal, startDate, endDate })` → `POST /api/sprints` (status defaults to `'open'` in the API). After creation, sets `isNewSprint = false` and stores the returned `sprint._id` in local state.
+- `isNewSprint === false`: Save calls `sprintService.updateSprint(id, { name, goal, startDate, endDate, teamMemberIds })` → `PATCH /api/sprints/[id]`. Status is handled separately via `sprintService.openRetro(id)` or `sprintService.closeRetro(id)` if the radio changed.
+
+**Status change on save**:
+- If current radio value differs from loaded `sprint.status`: after `updateSprint` resolves, call `openRetro(id)` or `closeRetro(id)` accordingly
+- If status unchanged: skip the status call
+
+**`sprintService` function responsibilities**:
+
+| Function | HTTP call | Returns |
+|---|---|---|
+| `getActiveSprint()` | `GET /api/sprints` | `Sprint \| null` |
+| `createSprint(payload)` | `POST /api/sprints` body: `{ name, goal, startDate, endDate }` | `Sprint` (201) |
+| `updateSprint(id, payload)` | `PATCH /api/sprints/[id]` body: partial sprint fields | `Sprint` (200) |
+| `openRetro(id)` | `PATCH /api/sprints/[id]/status` body: `{ status: 'open' }` | `Sprint` (200) |
+| `closeRetro(id)` | `PATCH /api/sprints/[id]/status` body: `{ status: 'closed' }` | `Sprint` (200) |
+
+All functions throw `Error` on non-2xx responses with the JSON `error` field as the message.
+
+---
+
+### AC-4.1.8 — `data-testid` Map (complete)
+
+| `data-testid` value | Element | Notes |
+|---|---|---|
+| `"sprint-setup-page"` | Outermost content wrapper | Used by smoke test |
+| `"admin-view"` | Admin form container div | Absent in non-admin view |
+| `"readonly-view"` | Read-only container div | Absent in admin view |
+| `"sprint-name-input"` | Sprint Name `<input>` | Admin only |
+| `"sprint-goal-input"` | Sprint Goal `<textarea>` | Admin only |
+| `"start-date-input"` | Start Date `<input type="date">` | Admin only |
+| `"end-date-input"` | End Date `<input type="date">` | Admin only |
+| `"date-error"` | Inline date validation error `<p>` | Shown when `endDate < startDate` |
+| `"status-open"` | Open radio `<input type="radio">` | Admin only |
+| `"status-closed"` | Closed radio `<input type="radio">` | Admin only |
+| `"retro-status-section"` | Retro Status section container | Admin only |
+| `"member-row"` | Each team member row div | Admin + non-admin |
+| `"remove-member-btn"` | Trash icon button in each member row | Admin only |
+| `"username-input"` | Add Member username text input | Admin only |
+| `"add-member-btn"` | "+ Add Member" button | Admin only |
+| `"member-error"` | Inline member lookup error `<p>` | Admin only; "User not found" or "User already added" |
+| `"save-btn"` | Save Changes / Save & Open Retro button | Admin only |
+| `"cancel-btn"` | Cancel button | Admin only |
+| `"save-success"` | Inline save success `<span>` | Shown for 2s after successful save |
+
+---
+
+### AC-4.1.9 — Loading and Error States
+
+**Loading state**:
+- While `getActiveSprint()` is in flight: render `<Shell sprintName="">` with a centred `"Loading…"` spinner text (same pattern as `feedback/page.tsx` and `actions/page.tsx`)
+- `data-testid="sprint-setup-page"` is NOT rendered during loading (entire page is the loading shell)
+
+**Error state** (fetch fails):
+- Inline error below the form header: `"Failed to load sprint data. Please refresh."` (`data-testid="load-error"`)
+- Form fields are disabled but page does not crash
+- Save button is disabled in error state
+
+**Save error**:
+- If `updateSprint` / `createSprint` throws: show inline error `"Failed to save. Please try again."` (`data-testid="save-error"`) below the Save button
+- `isSaving` is reset to `false` in the `finally` block
+
+---
+
+### AC-4.1.10 — Data Fetch Strategy
+
+**Page load**:
+1. Call `sprintService.getActiveSprint()` — wraps `GET /api/sprints` which returns the first `status: 'open'` sprint
+2. Normalize response: `GET /api/sprints` returns either a sprint object or `[]` (empty array for no sprint). Service normalises to `Sprint | null`
+3. Member resolution: after loading the sprint, call `GET /api/users` to get all users; filter by `sprint.teamMemberIds` to build the resolved member list `{ _id, name, pod }[]` for display
+4. Both fetches run in parallel: `Promise.all([getActiveSprint(), getAllUsers()])`
+
+**`getAllUsers` reuse**: `userService.getAllUsers()` already exports `GET /api/users` — `sprintService` does NOT duplicate this. The page calls `getAllUsers()` from `userService` alongside `getActiveSprint()` from `sprintService`.
+
+---
+
+## Prototype-to-Implementation Delta (Sprint 4)
+
+| Delta ID | Prototype / Mock | Implementation | Resolution |
+|---|---|---|---|
+| PD-4.1 | `SprintSetup.tsx` imports `Button`, `Input`, `Label`, `Textarea`, `RadioGroup`, `Select` from `@/components/ui/*` (shadcn) | shadcn components do NOT exist in `retro-dev/` | **Plain HTML + Tailwind only** — all shadcn components replaced with native HTML elements and equivalent Tailwind classes |
+| PD-4.2 | Add Member form includes a `Select` dropdown for "Pod 1/2/3" | Pod is a field on the `User` model, not the sprint | **Pod dropdown omitted** — pod is displayed on the member row (resolved from user lookup), not collected during add |
+| PD-4.3 | Add Member input: `placeholder="Enter name..."` | AC-4.1.3 says "add by username (must be a registered user)" | **Placeholder changed to `"Enter username…"`** — lookup uses `GET /api/users?username={value}` |
+| PD-4.4 | Save button label: "Save & Open Retro" (single state) | Two modes: create vs update | **Label is conditional**: `"Save & Open Retro"` for new sprint creation; `"Save Changes"` for updating existing sprint |
+| PD-4.5 | Pod shown on member row: `"Pod 1"` static string | Pod must come from the resolved `User` record | **Pod resolved from `getAllUsers()` response** — filtered by `teamMemberIds` on page load and after each add |
+| PD-4.6 | `GET /api/users` has no `?username` filter | Username lookup requires server-side filtering | **`GET /api/users` route to be modified** to support optional `?username` query param; filtered with `{ username: query }` Mongoose find |
+| PD-4.7 | Prototype shows no loading or error state | Scalability pattern requires loading + error states | **Loading + error states added** per AC-4.1.9 |
+
+---
+
+## Business Rules (Sprint 4)
+
+| Rule | Enforcement layer |
+|---|---|
+| Only admin users can edit sprint configuration | Client: admin check on mount; page renders `admin-view` or `readonly-view` based on `currentUser.isAdmin` |
+| Sprint Name and dates are required | Client: Save button disabled until non-empty; API: `POST /api/sprints` already validates `name`, `startDate`, `endDate` |
+| End date must be ≥ start date | Client only: inline error + disabled save button; API does not enforce date ordering in Sprint 4 |
+| Username lookup must match a registered user | Client: `GET /api/users?username={value}` — empty result = "User not found" error |
+| Duplicate team member prevention | Client: check `_id` already in `teamMemberIds` state before appending |
+| Feedback submission blocked when retro is closed | Client: `sprint?.status === 'closed'` guard on `open-modal-btn`'s `onClick` in `feedback/page.tsx` |
+| Status changes are saved via dedicated route | Service: `openRetro(id)` / `closeRetro(id)` → `PATCH /api/sprints/[id]/status`; NOT mixed into the field update PATCH |
+| Admin determination | `getCurrentUser().isAdmin === true` — set server-side at registration (`POST /api/users` when `count === 0`) |
+
+---
+
+## UI Requirements (Sprint 4)
+
+### AC-UI-4.1 — Sprint Setup page layout
+
+| AC-ID | Requirement |
+|---|---|
+| AC-UI-4.1.1 | Page matches `docs/ui-mocks/SetUpSprint.png` |
+| AC-UI-4.1.2 | Page heading: **"Set Up Sprint"** h1 + subtitle **"Configure your retro session before your team joins."** |
+| AC-UI-4.1.3 | Content card: `retro-card p-8 space-y-8` with horizontal rule dividers between sections |
+| AC-UI-4.1.4 | Team member avatar: `w-8 h-8 rounded-full bg-slate-700` with two-letter uppercase initials |
+| AC-UI-4.1.5 | Open radio row: highlighted with `bg-secondary/30 border border-border/50 rounded-md p-3`; Closed radio row: plain `p-3` (no border highlight) |
+| AC-UI-4.1.6 | Shell sidebar shows gear/settings nav item as active at `/sprint-setup` |
+| AC-UI-4.1.7 | Save button: amber/primary background (`bg-primary text-primary-foreground font-semibold`); Cancel button: outline style (`border border-border/50`) |
+
+---
+
+## Type-Schema Alignment (Sprint 4)
+
+All Sprint 4 fields are **already defined** in `src/types/index.ts` and `src/lib/models/Sprint.ts`. No new types or schema changes needed.
+
+| Field | `Sprint` field | Type | Notes |
+|---|---|---|---|
+| Sprint name input | `name` | `string` | Required |
+| Sprint goal textarea | `goal` | `string` | Optional |
+| Start date input | `startDate` | `string` | ISO date string |
+| End date input | `endDate` | `string` | ISO date string |
+| Status radio | `status` | `"open" \| "closed"` | Kebab-case |
+| Team member IDs | `teamMemberIds` | `string[]` | Array of user `_id` strings |
+| Admin flag | `User.isAdmin` | `boolean` | Already in `User` interface |
+
+---
+
+## Definition of Done (Sprint 4)
+
+- [ ] All AC-4.1.x acceptance criteria pass
+- [ ] `corepack yarn build` — 0 errors
+- [ ] `corepack yarn test` — 0 failures (Sprint 1–3 regressions: 0)
+- [ ] Admin can create a new sprint (POST) and update an existing sprint (PATCH)
+- [ ] Admin can add/remove team members; changes persist on Save
+- [ ] Admin can toggle retro status Open/Closed; change persists on Save
+- [ ] Non-admin user sees read-only sprint info at `/sprint-setup`
+- [ ] Closed retro disables "Submit Feedback" button on Feedback Board
+- [ ] All shadcn imports eliminated from `sprint-setup/page.tsx` (plain HTML + Tailwind only)
+- [ ] `GET /api/users?username=X` filter works correctly
+- [ ] Committed: `git commit -m "Sprint 4 complete: Sprint Setup + Admin Controls"`
