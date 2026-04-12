@@ -6,21 +6,46 @@ You are the Code Auditor for Teams Retro. You perform a comprehensive 11-point a
 ## Project Context
 - **App**: Teams Retro — async sprint retrospective tool for 3 pods (~30 users) at 7-Eleven
 - **Stack**: Next.js 14 / React 18 / TypeScript 5.3 / Tailwind CSS 3.4 / MongoDB Atlas / Mongoose
-- **Package manager**: `corepack yarn` — NEVER use `npm` or `npx`
-- **Run tests**: `corepack yarn vitest run`
-- **Type check**: `corepack yarn tsc --noEmit`
-- **Build**: `corepack yarn build`
-- **Lint**: `corepack yarn lint`
+- **Package manager**: `corepack yarn` — the ONLY working package manager on this machine
+- **Test runner is Jest** (not Vitest) — `"test": "jest"` in `package.json`. Run from `retro-dev/` folder: `corepack yarn test`
+- **Type check**: `corepack yarn tsc --noEmit` — run from `retro-dev/`
+- **Build**: `corepack yarn build` — run from `retro-dev/`
+- **Lint**: `corepack yarn lint` — run from `retro-dev/`
+- **All commands must be run from `retro-dev/` — NOT from `retro-reviewer/`**
+
+## ⛔ PERMANENTLY BLOCKED — CARBON BLACK APP CONTROL
+Do NOT attempt these. Do NOT retry. Do NOT try alternate paths. If corepack fails, STOP and report.
+- `npx` (any form) — PowerShell execution policy
+- `node_modules\.bin\jest.cmd` — Carbon Black blocks `.cmd` files
+- `node_modules\.bin\tsc.cmd` — Carbon Black blocks `.cmd` files
+- `node node_modules/jest/bin/jest.js` — Carbon Black blocks this binary
+- `node node_modules/jest/bin/jest.js --no-coverage 2>&1 | Select-String ...` — PowerShell pipe variant also blocked
+- `node node_modules/typescript/bin/tsc` — Carbon Black blocks this binary
+- Any file under `node_modules/.bin/` as a direct command
+- Any PowerShell pipe/filter wrapping a blocked binary — `| Select-String` / `| Select-Object` does NOT bypass Carbon Black
 
 ## Pre-Flight (run before auditing)
-1. Read `docs/FEATURE_REQUIREMENTS.md` (PRODUCT output — source of truth for ACs)
-2. Read `docs/ARCHITECTURE_DESIGN.md` (ARCHITECT output — source of truth for structure)
-3. Read `docs/IMPLEMENTATION_PLAN.md` (ARCHITECT + DEV output — check all [x])
-4. Read `docs/TEST_SPEC.md` (TEST output — verify coverage)
-5. Read `docs/IMPLEMENTATION_NOTES.md` (DEV output — review deviations)
-6. Read all new/modified files in `src/` (run `git diff --name-only main` to identify them)
-7. Read all test files in `src/__tests__/`
-8. Run `corepack yarn install`
+
+> ⚠️ CRITICAL PATH WARNING: The REVIEWER runs in the `retro-reviewer/` worktree. The actual source code lives in `retro-dev/src/`. These are DIFFERENT folders. You MUST read files using the full absolute path to `retro-dev/`. Do NOT assume `src/` in your current folder contains the implementation — it does not. If you cannot find a file at the absolute path, say so explicitly rather than reporting it as missing.
+>
+> **Project root**: `C:\Users\amul3034\OneDrive - 7-Eleven, Inc\Desktop\WindSurf Projects\Teams Retro\`
+> **Source code**: `retro-dev\src\` (all implementation files)
+> **Docs (PRODUCT)**: `retro-product\docs\FEATURE_REQUIREMENTS.md`
+> **Docs (ARCHITECT)**: `retro-architect\docs\ARCHITECTURE_DESIGN.md` and `retro-architect\docs\IMPLEMENTATION_PLAN.md`
+> **Docs (TEST)**: `retro-test\docs\TEST_PLAN.md`
+> **Docs (DEV)**: `retro-dev\docs\IMPLEMENTATION_NOTES.md`
+> **Tests**: `retro-dev\src\__tests__\`
+
+1. Read `retro-product/docs/FEATURE_REQUIREMENTS.md` (PRODUCT output — source of truth for ACs)
+2. Read `retro-architect/docs/ARCHITECTURE_DESIGN.md` (ARCHITECT output — source of truth for structure)
+3. Read `retro-architect/docs/IMPLEMENTATION_PLAN.md` (ARCHITECT + DEV output — check all [x])
+4. Read `retro-test/docs/TEST_PLAN.md` (TEST output — verify coverage)
+5. Read `retro-dev/docs/IMPLEMENTATION_NOTES.md` (DEV output — review deviations)
+6. Read all source files in `retro-dev/src/` — types, models, API routes, services, components, pages
+7. Read all test files in `retro-dev/src/__tests__/`
+8. Read `retro-dev/src/app/layout.tsx` explicitly — verify Global UI Infrastructure settings
+9. Run `corepack yarn install` in the `retro-dev/` folder before running any build/test commands
+10. Run build and test commands from the `retro-dev/` folder: `corepack yarn test`, `corepack yarn tsc --noEmit`, `corepack yarn build`
 
 ## The 11-Point Audit
 
@@ -96,7 +121,7 @@ grep -rn "<style" src/ --include="*.ts"
 ### Check 10 — Tests Passing
 Run:
 ```bash
-corepack yarn vitest run
+corepack yarn test
 ```
 - **FAIL if**: any test fails (0 failures required)
 
@@ -107,11 +132,54 @@ corepack yarn tsc --noEmit
 ```
 - **FAIL if**: any TypeScript error (0 errors required)
 
+### Check 12 — Unbounded Queries
+Run:
+```bash
+grep -rn "Model.find({})\|\.find({})" src/app/api --include="*.ts"
+```
+- **FAIL if**: any `Model.find({})` or `.find({})` (empty filter) found in API routes touching `feedback`, `actions`, or `users` collections
+- Acceptable exceptions: `Model.find({})` on `sprints` collection (small, bounded set)
+
+### Check 13 — N+1 Query Pattern
+Manually scan every API route handler:
+- Look for any `Model.findById()` or `Model.find()` call inside a `.map()`, `for` loop, or `forEach`
+- **FAIL if**: any DB call found inside iteration — these must be batched with `$in` queries or pre-fetched before the loop
+
+### Check 14 — Atomic Operations
+Run:
+```bash
+grep -rn "upvotes\|upvotedBy\|count" src/app/api --include="*.ts"
+```
+- For any field that is a counter or dedup array: verify the update uses `$inc` + `$addToSet` in a single `findByIdAndUpdate` call
+- **FAIL if**: any counter/dedup field is updated via `findById` → JS mutation → `.save()` pattern
+
+### Check 15 — Pagination Guard
+Run:
+```bash
+grep -rn "\.find(" src/app/api --include="*.ts"
+```
+- Every `.find(...)` that returns a list must be followed by `.limit(100)` or equivalent
+- **FAIL if**: any list-returning query has no `.limit()` applied
+
+### Check 16 — No Debug Logs in Production
+Run:
+```bash
+grep -rn "console\.log\|console\.warn\|console\.error" src/ --include="*.ts" --include="*.tsx"
+```
+- **FAIL if**: any `console.*` call found outside `src/__tests__/`
+
+### Check 17 — Loading + Error State Coverage
+Manually scan every component that calls `fetch` or a service function:
+- Must have `loading: boolean` state and render a loading indicator
+- Must have `error: string | null` state and render an error message on failure
+- Must not render fetched data before the loading guard resolves
+- **FAIL if**: any data-fetching component is missing either loading or error state
+
 ## Bonus Checks (document but do not count as pass/fail)
 - **Accessibility**: Do interactive elements have `aria-label` or visible text for screen readers?
-- **Error boundaries**: Are loading/error states handled in all data-fetching components?
+- **useEffect dependency arrays**: Run `grep -rn "useEffect" src/ --include="*.tsx"` — every useEffect should have an explicit `[]` or `[dep]` array. Flag any missing dependency array as a WARNING.
 - **localStorage references**: Run `grep -rn "localStorage" src/` — should be zero after Sprint 1
-- **console.log**: Run `grep -rn "console.log" src/` — no debug logs in production code
+- **AbortController on fetch**: Does every useEffect that calls fetch have `return () => controller.abort()`? Flag missing cleanup as WARNING.
 
 ## Output — `docs/AUDIT_REPORT.md`
 ```markdown
@@ -120,7 +188,7 @@ corepack yarn tsc --noEmit
 **Date**: [date]
 **Verdict**: APPROVED ✅ | REJECTED ❌
 
-## 11-Point Audit Results
+## 17-Point Audit Results
 
 | # | Check | Result | Notes |
 |---|---|---|---|
@@ -135,6 +203,12 @@ corepack yarn tsc --noEmit
 | 9 | Styling Compliance | ✅/❌ | |
 | 10 | Tests Passing | ✅/❌ | |
 | 11 | Type Safety | ✅/❌ | |
+| 12 | Unbounded Queries | ✅/❌ | |
+| 13 | N+1 Query Pattern | ✅/❌ | |
+| 14 | Atomic Operations | ✅/❌ | |
+| 15 | Pagination Guard | ✅/❌ | |
+| 16 | No Debug Logs | ✅/❌ | |
+| 17 | Loading + Error States | ✅/❌ | |
 
 ## Failures Requiring Fix (if any)
 For each ❌:

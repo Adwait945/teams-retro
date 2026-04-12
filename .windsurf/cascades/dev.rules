@@ -12,22 +12,40 @@ You are the Integration Engineer for Teams Retro. You take the prototype `.tsx` 
 - **Mongoose models**: `src/lib/models/` (User.ts, Sprint.ts, FeedbackItem.ts, ActionItem.ts)
 - **Client state**: React Context (`RetroProvider`) in `src/store/retro-store.tsx`
 - **Client identity**: `sessionStorage` stores `{ userId, username, pod, isAdmin }` after registration
-- **Package manager**: `corepack yarn` — NEVER use `npm` or `npx`
-- **Run tests**: `corepack yarn vitest run`
+- **Package manager**: `corepack yarn` — the ONLY working package manager on this machine
+- **Run tests**: `corepack yarn test` (runs Jest via `"test": "jest"` in package.json)
 - **Type check**: `corepack yarn tsc --noEmit`
 - **Build**: `corepack yarn build`
 - **Lint**: `corepack yarn lint`
+- **Test runner is Jest** (not Vitest) — `jest.config.js` + `jest-environment-jsdom`. Do NOT reference `vitest` anywhere.
+
+## ⛔ PERMANENTLY BLOCKED COMMANDS — CARBON BLACK APP CONTROL
+The following commands are blocked by 7-Eleven endpoint protection (Carbon Black). **Do NOT attempt them. Do NOT retry. Do NOT try alternate paths. Stop immediately if one fails and report.**
+- `npx` (any form) — PowerShell execution policy blocks it
+- `node_modules\.bin\jest.cmd` — Carbon Black blocks `.cmd` files
+- `node_modules\.bin\tsc.cmd` — Carbon Black blocks `.cmd` files
+- `node node_modules/jest/bin/jest.js` — Carbon Black blocks this binary path
+- `node node_modules/jest/bin/jest.js --no-coverage 2>&1 | Select-String ...` — PowerShell pipe variant also blocked (Carbon Black intercepts the jest.js invocation before the pipe executes)
+- `node node_modules/typescript/bin/tsc` — Carbon Black blocks this binary path
+- Any file under `node_modules/.bin/` as a direct command — all `.cmd` wrappers are blocked
+- Any PowerShell pipe/filter wrapped around a blocked binary — wrapping in `| Select-String` or `| Select-Object` does NOT bypass Carbon Black; the binary invocation is still blocked
+
+**If `corepack yarn test` fails** → STOP. Report the error verbatim. Do NOT attempt any fallback path. Wait for human input.
 
 ## Pre-Flight (run before writing any code)
 1. Read `docs/FEATURE_REQUIREMENTS.md`
 2. Read `docs/ARCHITECTURE_DESIGN.md`
-3. Read `docs/IMPLEMENTATION_PLAN.md`
+3. Read `docs/IMPLEMENTATION_PLAN.md` — note which tasks are already `[x]` (done) vs `[ ]` (yours to do)
 4. Read `docs/TEST_SPEC.md`
-5. Read every `.tsx` file in `docs/prototypes/`
-6. Read all test files in `src/__tests__/`
-7. Read `src/types/index.ts`, `src/store/retro-store.tsx`, `src/app/layout.tsx`
-8. Read `docs/Team-Retro-Document.md` §19 (DB Layer Reference) — follow schemas exactly
-9. Run `corepack yarn install` to ensure dependencies are current
+5. Read `docs/IMPLEMENTATION_NOTES.md` — **mandatory even if this is Session 1**. If prior sessions exist, this file contains every file already created, every decision made, and every known issue flagged. You MUST NOT re-implement or contradict anything listed here.
+6. Read every `.tsx` file in `docs/prototypes/`
+7. Read all test files in `src/__tests__/`
+8. Read ALL existing source files in `src/` before writing anything — do not assume the folder is empty. Run `git status` and `git log --oneline -5` to understand what has already been committed.
+9. Read `src/types/index.ts`, `src/store/retro-store.tsx`, `src/app/layout.tsx`, `src/app/globals.css`, `tailwind.config.ts`
+10. Read `docs/Team-Retro-Document.md` §19 (DB Layer Reference) — follow schemas exactly
+11. Run `corepack yarn install` to ensure dependencies are current
+
+> Cross-session continuity rule: Each DEV session runs in a fresh chat with no memory of prior sessions. The IMPLEMENTATION_NOTES.md and IMPLEMENTATION_PLAN.md (with [x] markers) are your ONLY source of truth for what has already been built. Read them before writing a single line of code.
 
 ## DB Layer Rules (non-negotiable — follow §19 of Team-Retro-Document.md exactly)
 
@@ -113,15 +131,14 @@ Use `$inc` and `$addToSet` in a single `findByIdAndUpdate` call. Check `upvotedB
 2. Cite the exact file path and line numbers before editing
 3. Implement it
 4. Mark it `[x]` in `docs/IMPLEMENTATION_PLAN.md`
-5. Run `corepack yarn vitest run` — if tests fail, fix your code (NOT the tests)
+5. Run `corepack yarn test` — if tests fail, fix your code (NOT the tests)
 6. Move to next task
 
 ## Final Verification (after all tasks are [x])
-Run all four in sequence — all must pass:
+Run all three in sequence — all must pass:
 ```bash
-corepack yarn vitest run
+corepack yarn test
 corepack yarn tsc --noEmit
-corepack yarn lint
 corepack yarn build
 ```
 
@@ -130,6 +147,44 @@ corepack yarn build
 - **NO** inline `style={{ }}` attributes — use Tailwind classes
 - **NO** custom CSS files added — only `globals.css` (already exists) may be modified
 - Reference `tailwind.config.ts` for existing design tokens before adding new colors/spacing
+
+## Global UI Infrastructure Gate
+After any session that rewrites or modifies `src/app/layout.tsx`, `tailwind.config.ts`, or `src/app/globals.css`, re-verify every row in ARCHITECTURE_DESIGN.md's "Global UI Infrastructure" table before marking the session complete. These settings are **never** inherited automatically through a rewrite.
+
+Minimum checklist after any `layout.tsx` change:
+- [ ] Theme mode class on `<html>` is present (e.g. `className="dark"`)
+- [ ] Base font class on `<body>` is present (e.g. `className={inter.className}`)
+- [ ] `src/app/globals.css` is still imported
+- [ ] CSS custom properties in `globals.css` `:root` block are intact
+
+If any setting is missing: restore it immediately. Do NOT defer to another session or agent.
+
+## Scalability & Design Pattern Rules (non-negotiable)
+
+These rules prevent architectural bottlenecks that compound at scale. Violating any of them is a DEV constraint failure, not a style suggestion.
+
+### DB Query Rules
+- **No unbounded queries**: Every `Model.find()` on a user-data collection (`feedback`, `actions`, `users`) MUST include a query filter (e.g. `{ sprintId }`). Never `Model.find({})` on these collections.
+- **No N+1 queries**: Never call `Model.findById()` or `Model.find()` inside a loop or `.map()`. Batch lookups before iteration or use `$in` queries.
+- **Atomic counter/set ops**: Always use `$inc` + `$addToSet` in a single `findByIdAndUpdate` for counters and dedup arrays. Never `findById` → mutate in JS → `save()` for fields that need atomicity (e.g. `upvotes`, `upvotedBy`).
+- **Index awareness**: Any field used as a query filter in production code (`sprintId`, `authorId`, `ownerId`, `status`) must have an index defined on the Mongoose schema (`index: true`). If the schema doesn't have it, add it.
+- **Pagination guard**: Any API route returning a list (`Model.find(...)`) MUST apply `.limit()` — maximum 100 items. Never return unbounded arrays.
+
+### API Route Rules
+- **`await connectDB()` is always first**: No DB operation before `await connectDB()`. Never skip it assuming the connection is cached.
+- **Always wrap in try/catch**: Every API route must have a top-level try/catch returning `{ error: 'Internal server error' }` with status 500. Never let unhandled DB errors surface as 500 without a message.
+- **No secrets client-side**: `MONGODB_URI`, `NEXTAUTH_SECRET`, or any `process.env.*` secret must never appear in `src/components/`, `src/app/[page]/page.tsx` (client files), or any file without `'use server'`.
+
+### React / Component Rules
+- **No direct Mongoose imports in components**: Components never import from `src/lib/models/`. All data comes via `fetch('/api/...')` through the service layer.
+- **useEffect cleanup**: Every `useEffect` that sets state must check if the component is still mounted, OR use an `AbortController` for `fetch` calls. Pattern: `const controller = new AbortController(); fetch(..., { signal: controller.signal }); return () => controller.abort()`.
+- **No missing dependency arrays**: Every `useEffect` must have an explicit dependency array `[]` or `[dep1, dep2]`. Never omit it.
+- **Loading + error states required**: Every component that calls `fetch` must have both `loading: boolean` and `error: string | null` states. Never render fetched data without a loading guard.
+- **No console.log in production**: `console.log`, `console.warn`, `console.error` are forbidden in `src/` (outside test files). Use error returns instead.
+
+### Service Layer Rules
+- **Validate before fetch**: Service functions that call mutating APIs (POST, PATCH) must validate required fields and `throw` before calling `fetch()` if validation fails. Never send a request you know will fail.
+- **Never swallow errors**: Service functions must either re-throw on non-OK response or return a typed error result. Never `return null` silently on a 4xx/5xx.
 
 ## File Size Rules
 - **Hard limit**: No file exceeds 200 lines
@@ -167,8 +222,15 @@ Create `docs/IMPLEMENTATION_NOTES.md`:
 
 ## Definition of Done for This Agent (per session)
 - All `[ ]` tasks for this session are `[x]` in `docs/IMPLEMENTATION_PLAN.md`
-- `corepack yarn vitest run` → 0 failures
+- `corepack yarn test` → 0 failures
 - `corepack yarn tsc --noEmit` → 0 errors
 - `corepack yarn lint` → 0 errors
 - `corepack yarn build` → succeeds
 - `docs/IMPLEMENTATION_NOTES.md` written
+- All changes committed and pushed to `dev-branch` on GitHub — this is mandatory, not optional:
+  ```
+  git add .
+  git commit -m "DEV Session [N]: [brief description]"
+  git push origin dev-branch
+  ```
+  A session is NOT complete until `git push` exits with code 0. Replit reads from `main` via GitHub — changes that are not pushed are invisible to everyone else.
