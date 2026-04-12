@@ -41,9 +41,10 @@ interface FeedbackColumnProps {
   items: FeedbackItem[]
   onUpvote: (itemId: string) => void
   currentUserId: string
+  onConvert?: (item: FeedbackItem) => void
 }
 
-export default function FeedbackColumn({ category, items, onUpvote }: FeedbackColumnProps) {
+export default function FeedbackColumn({ category, items, onUpvote, onConvert }: FeedbackColumnProps) {
   const config = COLUMN_CONFIG[category]
   const sorted = sortByUpvotes(items)
 
@@ -73,6 +74,7 @@ export default function FeedbackColumn({ category, items, onUpvote }: FeedbackCo
               item={item}
               authorName=""
               onUpvote={() => onUpvote(item._id)}
+              onConvert={onConvert}
             />
           ))
         )}

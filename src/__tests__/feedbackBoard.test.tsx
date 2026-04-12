@@ -324,3 +324,101 @@ test('FB-13: successful upvote re-fetches board and shows API count', async () =
   expect(getFeedbackByLane).toHaveBeenCalledTimes(laneCallCount)
   expect(laneCallCount).toBeGreaterThanOrEqual(6)
 })
+
+// ── Sprint 3 — Convert to Action flow ────────────────────────────────────────
+// Scoped describe with URL-discriminating fetch to handle /api/users call
+// added in S3-S2-6. DO NOT modify the outer beforeEach.
+describe('Sprint 3 — Convert to Action flow', () => {
+  beforeEach(() => {
+    jest.clearAllMocks()
+    sessionStorage.clear()
+    ;(getCurrentUser as jest.Mock).mockReturnValue(mockUser)
+    ;(getFeedbackByLane as jest.Mock).mockResolvedValue([])
+
+    ;(global.fetch as jest.Mock) = jest.fn().mockImplementation((url: string) => {
+      if ((url as string).includes('/api/users')) {
+        return Promise.resolve({ ok: true, json: async () => [mockUser] })
+      }
+      return Promise.resolve({ ok: true, json: async () => mockSprint })
+    })
+  })
+
+  // ── FB-14: should-try card renders convert-btn ──────────────────────────────
+  test('FB-14: should-try feedback card renders data-testid="convert-btn"', async () => {
+    const shouldTryItem = makeFeedbackItem({
+      _id:      'fb-should-1',
+      category: 'should-try',
+      content:  'Adopt a no-meeting Thursday policy.',
+      authorId: 'user-other',
+    })
+    ;(getFeedbackByLane as jest.Mock).mockImplementation(
+      (_sprintId: string, category: string) =>
+        category === 'should-try' ? Promise.resolve([shouldTryItem]) : Promise.resolve([])
+    )
+
+    render(<FeedbackBoardPage />)
+    await waitForBoardLoaded()
+
+    expect(screen.getByTestId('convert-btn')).toBeInTheDocument()
+  })
+
+  // ── FB-15: went-well card does NOT render convert-btn ───────────────────────
+  test('FB-15: went-well card does NOT render convert-btn; exactly 1 convert-btn total', async () => {
+    const shouldTryItem = makeFeedbackItem({
+      _id:      'fb-should-1',
+      category: 'should-try',
+      content:  'Adopt a no-meeting Thursday policy.',
+      authorId: 'user-other',
+    })
+    const wentWellItem = makeFeedbackItem({
+      _id:      'fb-well-1',
+      category: 'went-well',
+      content:  'Great sprint review session.',
+      authorId: 'user-other',
+    })
+    ;(getFeedbackByLane as jest.Mock).mockImplementation(
+      (_sprintId: string, category: string) => {
+        if (category === 'should-try') return Promise.resolve([shouldTryItem])
+        if (category === 'went-well')  return Promise.resolve([wentWellItem])
+        return Promise.resolve([])
+      }
+    )
+
+    render(<FeedbackBoardPage />)
+    await waitForBoardLoaded()
+    await waitFor(() => expect(screen.getByText('Great sprint review session.')).toBeInTheDocument())
+
+    expect(screen.getAllByTestId('convert-btn')).toHaveLength(1)
+    expect(screen.getByText('Great sprint review session.')).toBeInTheDocument()
+  })
+
+  // ── FB-16: click convert-btn → convert-action-modal + title pre-filled ──────
+  test('FB-16: clicking convert-btn opens convert-action-modal with title pre-filled', async () => {
+    const shouldTryItem = makeFeedbackItem({
+      _id:      'fb-should-1',
+      category: 'should-try',
+      content:  'Adopt a no-meeting Thursday policy.',
+      authorId: 'user-other',
+    })
+    ;(getFeedbackByLane as jest.Mock).mockImplementation(
+      (_sprintId: string, category: string) =>
+        category === 'should-try' ? Promise.resolve([shouldTryItem]) : Promise.resolve([])
+    )
+
+    render(<FeedbackBoardPage />)
+    await waitForBoardLoaded()
+    await waitFor(() => expect(screen.getByTestId('convert-btn')).toBeInTheDocument())
+
+    fireEvent.click(screen.getByTestId('convert-btn'))
+
+    await waitFor(() => {
+      expect(screen.getByTestId('convert-action-modal')).toBeInTheDocument()
+    })
+
+    const titleInput = screen.getByDisplayValue('Adopt a no-meeting Thursday policy.')
+    expect(titleInput).toBeInTheDocument()
+
+    expect(screen.getByTestId('convert-action-submit-btn')).toBeInTheDocument()
+    expect(screen.getByTestId('convert-action-submit-btn')).toBeDisabled()
+  })
+})

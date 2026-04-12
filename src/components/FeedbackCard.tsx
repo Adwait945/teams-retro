@@ -14,9 +14,10 @@ interface FeedbackCardProps {
   item: FeedbackItem
   authorName: string
   onUpvote: () => void
+  onConvert?: (item: FeedbackItem) => void
 }
 
-export default function FeedbackCard({ item, authorName, onUpvote }: FeedbackCardProps) {
+export default function FeedbackCard({ item, authorName, onUpvote, onConvert }: FeedbackCardProps) {
   const borderClass = BORDER_CLASS[item.category]
   const displayName = getAuthorDisplay(item, authorName)
   const isAnon = item.isAnonymous
@@ -48,15 +49,26 @@ export default function FeedbackCard({ item, authorName, onUpvote }: FeedbackCar
           <span className="text-xs text-muted-foreground">{displayName}</span>
         </div>
 
-        <button
-          className="flex items-center gap-1.5 px-2 py-1 rounded bg-secondary/50 hover:bg-secondary text-xs font-medium transition-colors"
-          onClick={onUpvote}
-          aria-label="Upvote"
-          data-testid="upvote-btn"
-        >
-          <ThumbsUp className="w-3 h-3 text-muted-foreground" />
-          {item.upvotes}
-        </button>
+        <div className="flex items-center gap-2">
+          {item.category === 'should-try' && onConvert && (
+            <button
+              onClick={() => onConvert(item)}
+              data-testid="convert-btn"
+              className="text-xs font-medium px-2.5 py-1 rounded bg-amber-500/20 text-amber-400 hover:bg-amber-500/30 transition-colors"
+            >
+              Convert to Action
+            </button>
+          )}
+          <button
+            className="flex items-center gap-1.5 px-2 py-1 rounded bg-secondary/50 hover:bg-secondary text-xs font-medium transition-colors"
+            onClick={onUpvote}
+            aria-label="Upvote"
+            data-testid="upvote-btn"
+          >
+            <ThumbsUp className="w-3 h-3 text-muted-foreground" />
+            {item.upvotes}
+          </button>
+        </div>
       </div>
     </div>
   )

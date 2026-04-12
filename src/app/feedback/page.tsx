@@ -8,7 +8,10 @@ import FeedbackColumn from '@/components/FeedbackColumn'
 import { getCurrentUser } from '@/services/userService'
 import { getFeedbackByLane, addFeedback, upvoteFeedback } from '@/services/feedbackService'
 import SubmitFeedbackModal from '@/components/SubmitFeedbackModal'
-import type { Sprint, FeedbackItem, FeedbackCategory } from '@/types'
+import ConvertActionModal from '@/components/ConvertActionModal'
+import { createAction } from '@/services/actionService'
+import type { Sprint, FeedbackItem, FeedbackCategory, User } from '@/types'
+import type { CreateActionPayload } from '@/services/actionService'
 
 export default function FeedbackPage() {
   const router = useRouter()
@@ -18,6 +21,9 @@ export default function FeedbackPage() {
   const [shouldTry, setShouldTry] = useState<FeedbackItem[]>([])
   const [wentWell, setWentWell] = useState<FeedbackItem[]>([])
   const [showModal, setShowModal] = useState(false)
+  const [showConvertModal, setShowConvertModal] = useState(false)
+  const [convertTarget, setConvertTarget] = useState<FeedbackItem | null>(null)
+  const [users, setUsers] = useState<Pick<User, '_id' | 'name'>[]>([])
   const [isLoading, setIsLoading] = useState(true)
 
   const refetch = useCallback(async (sprintId: string) => {
@@ -48,6 +54,15 @@ export default function FeedbackPage() {
           ? data
           : null
         setSprint(activeSprint)
+
+        const usersRes = await fetch('/api/users')
+        if (usersRes.ok) {
+          const usersData: unknown = await usersRes.json()
+          if (Array.isArray(usersData)) {
+            setUsers((usersData as User[]).map((u) => ({ _id: u._id, name: u.name })))
+          }
+        }
+
         if (activeSprint) {
           await refetch(activeSprint._id)
         }
@@ -70,6 +85,16 @@ export default function FeedbackPage() {
     } catch {
       // 403 self-vote or 409 duplicate — silent no-op
     }
+  }
+
+  function handleConvert(item: FeedbackItem) {
+    setConvertTarget(item)
+    setShowConvertModal(true)
+  }
+
+  async function handleConvertSubmit(payload: CreateActionPayload) {
+    await createAction(payload)
+    setShowConvertModal(false)
   }
 
   async function onSubmitFeedback(payload: {
@@ -120,18 +145,21 @@ export default function FeedbackPage() {
             items={slowedDown}
             onUpvote={handleUpvote}
             currentUserId={currentUser?._id ?? ''}
+            onConvert={handleConvert}
           />
           <FeedbackColumn
             category="should-try"
             items={shouldTry}
             onUpvote={handleUpvote}
             currentUserId={currentUser?._id ?? ''}
+            onConvert={handleConvert}
           />
           <FeedbackColumn
             category="went-well"
             items={wentWell}
             onUpvote={handleUpvote}
             currentUserId={currentUser?._id ?? ''}
+            onConvert={handleConvert}
           />
         </div>
 
@@ -140,6 +168,15 @@ export default function FeedbackPage() {
           onClose={() => setShowModal(false)}
           onSubmit={onSubmitFeedback}
           sprintId={sprint?._id ?? ''}
+        />
+
+        <ConvertActionModal
+          open={showConvertModal}
+          feedbackItem={convertTarget}
+          sprintId={sprint?._id ?? ''}
+          users={users}
+          onClose={() => setShowConvertModal(false)}
+          onSubmit={handleConvertSubmit}
         />
       </div>
     </Shell>

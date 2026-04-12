@@ -6,6 +6,7 @@ import { Plus } from 'lucide-react'
 import Shell from '@/components/layout/Shell'
 import ActionItemCard from '@/components/ActionItemCard'
 import NewActionItemModal from '@/components/NewActionItemModal'
+import VerifyImpactModal from '@/components/VerifyImpactModal'
 import { getCurrentUser } from '@/services/userService'
 import {
   getActions,
@@ -228,8 +229,12 @@ export default function ActionsPage() {
           onSubmit={handleCreateAction}
         />
 
-        {/* Verify Impact Modal — Session 2 stub */}
-        {showVerifyModal && <div data-testid="verify-modal-stub" />}
+        <VerifyImpactModal
+          open={showVerifyModal}
+          item={verifyTarget}
+          onClose={() => { setShowVerifyModal(false); setVerifyTarget(null) }}
+          onSubmit={handleVerifySubmit}
+        />
       </div>
     </Shell>
   )
