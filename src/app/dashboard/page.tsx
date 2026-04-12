@@ -36,6 +36,7 @@ export default function DashboardPage() {
   const [sprint, setSprint] = useState<Sprint | null>(null)
   const [actions, setActions] = useState<ActionItem[]>([])
   const [isLoading, setIsLoading] = useState(true)
+  const [loadError, setLoadError] = useState(false)
 
   useEffect(() => {
     const user = getCurrentUser()
@@ -62,7 +63,7 @@ export default function DashboardPage() {
         setSprint(activeSprint)
         setActions(fetchedActions)
       } catch {
-        // leave sprint null — will render empty state
+        setLoadError(true)
       } finally {
         setIsLoading(false)
       }
@@ -78,6 +79,16 @@ export default function DashboardPage() {
       <Shell>
         <div className="flex items-center justify-center h-full text-muted-foreground text-sm">
           Loading…
+        </div>
+      </Shell>
+    )
+  }
+
+  if (loadError) {
+    return (
+      <Shell>
+        <div data-testid="load-error" className="flex items-center justify-center h-full text-red-400 text-sm">
+          Something went wrong. Please try again.
         </div>
       </Shell>
     )
@@ -140,11 +151,12 @@ export default function DashboardPage() {
           </>
         ) : (
           <>
-            <div className="rounded-xl p-12 text-center bg-secondary/10 border-dashed border-2 border-border/50">
+            <div data-testid="dashboard-empty-state" className="rounded-xl p-12 text-center bg-secondary/10 border-dashed border-2 border-border/50">
               <h2 className="text-xl font-bold mb-2">No sprint data yet.</h2>
               <p className="text-muted-foreground mb-6">Set up your first sprint to get started.</p>
               <button
                 onClick={() => router.push("/sprint-setup")}
+                data-testid="dashboard-setup-btn"
                 className="px-6 py-2 rounded-md bg-blue-600 hover:bg-blue-700 text-white font-medium transition"
               >
                 Set Up Sprint →
