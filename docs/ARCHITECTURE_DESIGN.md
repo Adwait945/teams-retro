@@ -1638,3 +1638,353 @@ All 8 functions are exported. The `actionService` mock in `actionItems.test.tsx`
 | S3-S2-8 mock pattern — all 8 `actionService` exports exist; no forward-declaration needed | ✅ |
 | `data-testid="open-new-action-btn"` confirmed on `actions/page.tsx` line 156 | ✅ |
 | `data-testid="verify-modal-stub"` on line 232 — to be removed in S3-S2-7 | ✅ |
+
+---
+
+---
+
+# Sprint 4 — Architecture Design
+
+**Mode**: [ARCHITECT]  
+**Date**: April 2026  
+**Scope**: Epic 4.1 — Sprint Setup + Admin Controls (single DEV session)  
+**Prerequisite**: Sprint 3 complete and merged
+
+---
+
+## Component Boundaries (Sprint 4)
+
+```
+sprint-setup/page.tsx          ← "use client"; session + admin guard; page orchestrator
+  └── sprintService.ts         ← fetch wrapper: getActiveSprint, createSprint, updateSprint, openRetro, closeRetro
+  └── userService.ts           ← getAllUsers() reused (no duplication)
+  └── Shell.tsx                ← layout wrapper (read-only — Sprint 1)
+
+api/sprints/[id]/route.ts      ← NEW: PATCH — update sprint fields
+api/sprints/[id]/status/route.ts ← NEW: PATCH — toggle status open/closed
+api/users/route.ts             ← MODIFY: add optional ?username query filter
+
+feedback/page.tsx              ← MODIFY: add sprint.status === 'closed' guard on Submit button
+```
+
+---
+
+## Data Flow (Sprint 4)
+
+### Page Mount (admin)
+```
+sprint-setup/page.tsx
+  → Promise.all([
+      sprintService.getActiveSprint(),   → GET /api/sprints → SprintModel.findOne({status:'open'})
+      userService.getAllUsers()           → GET /api/users   → UserModel.find({})
+    ])
+  → setSprint(activeSprint)
+  → setResolvedMembers(allUsers.filter(u => sprint.teamMemberIds.includes(u._id)))
+  → populate form fields
+```
+
+### Save Changes (update existing sprint)
+```
+sprint-setup/page.tsx handleSave()
+  → sprintService.updateSprint(id, { name, goal, startDate, endDate, teamMemberIds })
+      → PATCH /api/sprints/[id]
+          → SprintModel.findById(id) → update fields → save() → 200
+  → if (localStatus !== sprint.status):
+      sprintService.openRetro(id) | closeRetro(id)
+          → PATCH /api/sprints/[id]/status
+              → SprintModel.findById(id) → item.status = status → save() → 200
+  → setSprint(updatedSprint) → show "Sprint saved." for 2s
+```
+
+### Save Changes (create new sprint)
+```
+sprint-setup/page.tsx handleSave()
+  → sprintService.createSprint({ name, goal, startDate, endDate })
+      → POST /api/sprints → SprintModel({ ...body, status: 'open' }) → save() → 201
+  → setSprintId(returned._id) → setIsNewSprint(false) → show "Sprint saved."
+```
+
+### Add Member
+```
+sprint-setup/page.tsx handleAddMember(username)
+  → GET /api/users?username={username}
+      → UserModel.find({ username }) → [] | [User]
+  → empty → setMemberError("User not found")
+  → found._id in teamMemberIds → setMemberError("User already added")
+  → found, new → setResolvedMembers([...prev, {_id, name, pod}])
+                  setTeamMemberIds([...prev, found._id])
+```
+
+### Closed Retro Guard (feedback/page.tsx)
+```
+feedback/page.tsx
+  sprint.status === 'closed'
+    → open-modal-btn disabled + aria-label="Feedback submission is closed"
+    → onClick guard: if (sprint?.status === 'closed') return
+```
+
+---
+
+## New Files: CREATE
+
+### `src/app/api/sprints/[id]/route.ts` (~50 lines)
+
+**Method**: `PATCH`  
+**AC**: AC-4.1.2, AC-4.1.3, AC-4.1.7
+
+```ts
+export async function PATCH(
+  req: NextRequest,
+  { params }: { params: { id: string } }
+): Promise<NextResponse>
+```
+
+**Logic**:
+1. `await connectDB()`
+2. `const body = await req.json()` — extract `{ name, goal, startDate, endDate, teamMemberIds }`
+3. If body has no recognized fields → 400 `{ error: 'No updatable fields provided' }`
+4. `SprintModel.findById(params.id)` → 404 if not found
+5. Apply only provided fields: `if (body.name !== undefined) item.name = body.name` etc.
+6. `await item.save()` → return `NextResponse.json(item, { status: 200 })`
+7. `try/catch` → `void err` → 500
+
+**Fields updatable**: `name`, `goal`, `startDate`, `endDate`, `teamMemberIds`  
+**Fields NOT updatable here**: `status` — use `/status` route
+
+---
+
+### `src/app/api/sprints/[id]/status/route.ts` (~30 lines)
+
+**Method**: `PATCH`  
+**AC**: AC-4.1.4, AC-4.1.7
+
+```ts
+export async function PATCH(
+  req: NextRequest,
+  { params }: { params: { id: string } }
+): Promise<NextResponse>
+```
+
+**Logic**:
+1. `await connectDB()`
+2. `const { status } = await req.json()`
+3. If `status !== 'open' && status !== 'closed'` → 400 `{ error: "status must be 'open' or 'closed'" }`
+4. `SprintModel.findById(params.id)` → 404 if not found
+5. `item.status = status` → `await item.save()` → return `NextResponse.json(item, { status: 200 })`
+6. `try/catch` → `void err` → 500
+
+---
+
+### `src/services/sprintService.ts` (~80 lines)
+
+**AC**: AC-4.1.7, AC-4.1.10
+
+```ts
+import type { Sprint } from '@/types'
+
+export async function getActiveSprint(): Promise<Sprint | null>
+export async function createSprint(payload: {
+  name: string
+  goal?: string
+  startDate: string
+  endDate: string
+}): Promise<Sprint>
+export async function updateSprint(
+  id: string,
+  payload: Partial<Pick<Sprint, 'name' | 'goal' | 'startDate' | 'endDate' | 'teamMemberIds'>>
+): Promise<Sprint>
+export async function openRetro(id: string): Promise<Sprint>
+export async function closeRetro(id: string): Promise<Sprint>
+```
+
+**`getActiveSprint` normalisation**: `GET /api/sprints` returns either a sprint object or `[]`. Service normalises:
+```ts
+const data = await res.json()
+return Array.isArray(data) ? null : (data as Sprint)
+```
+
+**Error pattern**: All functions throw `new Error(json.error ?? 'Request failed')` on non-2xx.
+
+---
+
+### `src/app/sprint-setup/page.tsx` (~150 lines)
+
+**AC**: AC-4.1.1 through AC-4.1.10
+
+**State**:
+```ts
+const [sprint, setSprint] = useState<Sprint | null>(null)
+const [isNewSprint, setIsNewSprint] = useState(false)
+const [isLoading, setIsLoading] = useState(true)
+const [loadError, setLoadError] = useState(false)
+const [isSaving, setIsSaving] = useState(false)
+const [saveError, setSaveError] = useState('')
+const [saveSuccess, setSaveSuccess] = useState(false)
+
+// Form fields (controlled)
+const [name, setName] = useState('')
+const [goal, setGoal] = useState('')
+const [startDate, setStartDate] = useState('')
+const [endDate, setEndDate] = useState('')
+const [localStatus, setLocalStatus] = useState<'open' | 'closed'>('open')
+
+// Members
+const [teamMemberIds, setTeamMemberIds] = useState<string[]>([])
+const [resolvedMembers, setResolvedMembers] = useState<{ _id: string; name: string; pod: string }[]>([])
+const [usernameInput, setUsernameInput] = useState('')
+const [memberError, setMemberError] = useState('')
+const [isAddingMember, setIsAddingMember] = useState(false)
+```
+
+**`dateError` derived** (not state):
+```ts
+const dateError = startDate && endDate && endDate < startDate
+  ? 'End date must be on or after start date'
+  : ''
+```
+
+**`saveDisabled` derived**:
+```ts
+const saveDisabled = !name.trim() || !startDate || !endDate || !!dateError || isSaving
+```
+
+**Admin vs read-only branch**:
+```tsx
+const isAdmin = currentUser?.isAdmin === true
+return isAdmin ? <AdminView ... /> : <ReadOnlyView ... />
+```
+
+Both branches wrapped in `<Shell sprintName={sprint?.name}>`.
+
+**`handleSave` flow** (admin only):
+```ts
+async function handleSave() {
+  setIsSaving(true)
+  setSaveError('')
+  try {
+    let updated: Sprint
+    if (isNewSprint) {
+      updated = await createSprint({ name, goal, startDate, endDate })
+      setIsNewSprint(false)
+    } else {
+      updated = await updateSprint(sprint!._id, { name, goal, startDate, endDate, teamMemberIds })
+    }
+    if (localStatus !== updated.status) {
+      updated = localStatus === 'open'
+        ? await openRetro(updated._id)
+        : await closeRetro(updated._id)
+    }
+    setSprint(updated)
+    setSaveSuccess(true)
+    setTimeout(() => setSaveSuccess(false), 2000)
+  } catch (err) {
+    setSaveError(err instanceof Error ? err.message : 'Failed to save. Please try again.')
+  } finally {
+    setIsSaving(false)
+  }
+}
+```
+
+---
+
+## Modified Files
+
+### `src/app/api/users/route.ts` — Add `?username` query filter
+
+**Current**: `GET` handler does `UserModel.find({}).lean()` — no query filtering.  
+**Change required**: Add optional `username` query param filter.
+
+```ts
+export async function GET(req: NextRequest) {
+  try {
+    await connectDB()
+    const username = req.nextUrl.searchParams.get('username')
+    const query = username ? { username } : {}
+    const users = await UserModel.find(query).lean()
+    return NextResponse.json(users, { status: 200 })
+  } catch (err) {
+    console.error('[GET /api/users]', err)
+    return NextResponse.json({ error: 'Database connection failed' }, { status: 500 })
+  }
+}
+```
+
+**Breaking change risk**: `GET /api/users` with no query param returns all users — **unchanged behaviour**. Existing Sprint 1–3 call sites (`userService.getAllUsers()`, `feedback/page.tsx`, `actions/page.tsx`) all call without a `?username` param — **no regression**.
+
+**Test impact**: The `feedbackBoard.test.tsx` `global.fetch` mock already handles `/api/users` via URL-discriminating mock (Sprint 3 Session 2 FB-14/15/16 block). Sprint 4 mock will need to handle `/api/users?username=X` additionally — addressed in Phase 3.
+
+---
+
+### `src/app/feedback/page.tsx` — Closed retro guard
+
+**Surgical change** — additive only. Two modifications:
+
+1. Button `disabled` prop:
+```tsx
+<button
+  onClick={() => { if (sprint?.status !== 'closed') setShowModal(true) }}
+  data-testid="open-modal-btn"
+  disabled={sprint?.status === 'closed'}
+  aria-label={sprint?.status === 'closed' ? 'Feedback submission is closed' : undefined}
+  className={`... ${sprint?.status === 'closed' ? 'opacity-50 cursor-not-allowed' : ''}`}
+>
+```
+
+2. `onClick` guard prevents modal from opening even if `disabled` is bypassed.
+
+**FB-1 through FB-16 regression check**: All existing tests have `mockSprint.status = 'open'`. The `disabled` prop evaluates to `false`. `onClick` guard evaluates to `false` (sprint is not closed). **Zero regression risk.** ✅
+
+---
+
+## Files READ-ONLY (Sprint 4)
+
+| File | Reason |
+|---|---|
+| `src/app/api/sprints/route.ts` | GET + POST complete; `console.error` calls are pre-existing (out of Sprint 4 scope per F8) |
+| `src/lib/models/Sprint.ts` | Schema complete — all required fields present |
+| `src/types/index.ts` | `Sprint` and `User` interfaces complete — no changes needed |
+| `src/services/userService.ts` | `getAllUsers()` reused as-is |
+| All Sprint 1–3 source files not listed as MODIFY | Read-only |
+
+---
+
+## Isolation Constraints (Sprint 4)
+
+| Constraint | Rule |
+|---|---|
+| `src/app/api/sprints/route.ts` | **Never modified** — existing GET + POST untouched |
+| `src/lib/models/Sprint.ts` | **Never modified** — no schema additions in Sprint 4 |
+| `src/types/index.ts` | **Never modified** — no new type additions |
+| `sprintService.ts` | Must NOT duplicate `getAllUsers()` from `userService` — call `userService.getAllUsers()` from the page |
+| `sprint-setup/page.tsx` | **No shadcn imports** — all `@/components/ui/*` components forbidden |
+| Status values | Always `"open"` or `"closed"` — no other values in Sprint 4 |
+| `console.error` in new routes | **Forbidden** — use `void err` pattern (same as Sprint 3 routes) |
+| `feedback/page.tsx` modification | Additive only — `disabled` prop + `onClick` guard — no state, no refetch, no new imports |
+
+---
+
+## Shell Sidebar Navigation Update (Sprint 4)
+
+The `Shell.tsx` sidebar must be updated to include a **Sprint Setup** nav item at `/sprint-setup`, visible to all logged-in users (non-admins can still view the read-only page). The nav item uses the Lucide `Settings` icon.
+
+**Risk**: `Shell.tsx` is a Sprint 1 file. The modification is additive only — adding one nav item entry to the `NAV_ITEMS` array. No existing nav items are moved or removed.
+
+**`data-testid`**: Not required on the nav item itself (Shell nav was tested in Sprint 1; Sprint 4 tests do not test Shell internals).
+
+---
+
+## Sprint 4 Architecture Summary
+
+| Check | Status |
+|---|---|
+| New API routes: `sprints/[id]/route.ts`, `sprints/[id]/status/route.ts` | ✅ CREATE — no conflicts with existing `sprints/route.ts` (different path segments) |
+| `sprintService.ts` — 5 functions, no overlap with existing services | ✅ CREATE |
+| `sprint-setup/page.tsx` — plain HTML only, no shadcn | ✅ CREATE |
+| `api/users/route.ts` — add `?username` filter | ✅ MODIFY (additive, backward-compatible) |
+| `feedback/page.tsx` — closed retro guard | ✅ MODIFY (additive, no regression to FB-1–16) |
+| `Shell.tsx` — add Sprint Setup nav item | ✅ MODIFY (additive, one array entry) |
+| `Sprint` type: no changes | ✅ READ-ONLY |
+| `User` type: `isAdmin` already present | ✅ READ-ONLY |
+| Sprint model: all fields present | ✅ READ-ONLY |
+| `userService.getAllUsers()` reused from page — no duplication | ✅ |
+| `console.error` pre-existing in `sprints/route.ts` — out of scope | ✅ Not flagged |
