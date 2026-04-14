@@ -1027,3 +1027,626 @@ Adding `className="dark"` to `<html>` is the single change that unlocks every da
 ---
 
 *End of CODE_EXPLAINER.md — Sprint 2 + Sprint 3*
+
+---
+
+---
+
+## Sprint 4 — Session 1 Code Explanation
+_Written by PROFESSOR after DEV session completed on April 12, 2026_
+_Tasks covered: S4-1, S4-2, S4-3, S4-4, S4-5 (modified), S4-6 (modified), S4-7 (skipped — already present), S4-8, S4-9_
+
+---
+
+### `route.ts` — PATCH sprint fields (`src/app/api/sprints/[id]/route.ts`)
+
+**What it IS**: A server-side API endpoint that lets the app update a sprint's name, goal, dates, or team members when the admin saves changes on the Sprint Setup page.
+
+**What it DOES** (block by block):
+
+| Block | Explanation |
+|---|---|
+| Imports | Pulls in `NextRequest` and `NextResponse` (Next.js tools for reading incoming web requests and building responses), `connectDB` (opens the database connection), and `SprintModel` (the Mongoose blueprint that knows how to read/write sprint documents in MongoDB). |
+| `PATCH` function signature | The function is called `PATCH` — that name is special. Next.js App Router automatically connects it to HTTP PATCH requests sent to `/api/sprints/[id]`. The `[id]` in the folder name is a **dynamic segment** — a placeholder that gets filled in at runtime with the actual sprint ID (e.g. `/api/sprints/abc123`). |
+| `connectDB()` | Opens (or reuses) the connection to MongoDB before doing anything else. |
+| Parsing the request body | `req.json()` reads the raw JSON payload the browser sent. It destructures the five allowed fields: `name`, `goal`, `startDate`, `endDate`, `teamMemberIds`. Any fields not in this list are silently ignored. |
+| Empty-body guard | If none of the five fields were provided, the route immediately returns HTTP 400 ("Bad Request") with `{ error: 'No updatable fields provided' }`. This prevents a pointless database write that changes nothing. |
+| `SprintModel.findById(params.id)` | Looks up the sprint by its ID in MongoDB. If no sprint exists with that ID, returns HTTP 404 ("Not Found"). |
+| Conditional field updates | Each field is applied only if it was actually included in the request (`if (name !== undefined) item.name = name`). This means a caller can update just the name without accidentally wiping out the goal or dates. |
+| `item.save()` | Writes the updated sprint back to MongoDB. |
+| `try/catch` with `void err` | If anything goes wrong (database down, malformed ID), the error is silently discarded (`void err` — a deliberate pattern to satisfy TypeScript's "you can't ignore variables" rule) and a generic HTTP 500 is returned. `console.error` is intentionally omitted in new Sprint 4 routes. |
+
+**WHY it exists**: Without this route, the Sprint Setup page has no way to persist changes. Pressing "Save Changes" would update the screen briefly but nothing would survive a page refresh.
+
+**HOW it connects**:
+- Data comes from `sprintService.ts → updateSprint()` which calls `PATCH /api/sprints/${id}`
+- This route reads the sprint from MongoDB, applies changes, saves, and returns the updated sprint object
+- `sprint-setup/page.tsx` receives the returned sprint and updates the UI
+
+**Plain English Analogy**: This is the **desk clerk at a hotel** — you slide them a note saying "please change my room name to 'Suite 42' and update my check-out date." They look up your booking, change only what you asked, save the record, and hand you back a confirmation slip. They won't process the request if you handed them a blank note.
+
+---
+
+### `route.ts` — PATCH sprint status (`src/app/api/sprints/[id]/status/route.ts`)
+
+**What it IS**: A dedicated server-side endpoint for toggling a sprint between "open" (feedback allowed) and "closed" (feedback locked), keeping status changes separate from field changes.
+
+**What it DOES** (block by block):
+
+| Block | Explanation |
+|---|---|
+| Imports | Same three imports as the sibling route above — `NextRequest`, `NextResponse`, `connectDB`, `SprintModel`. |
+| `PATCH` handler | Triggered by `PATCH /api/sprints/[id]/status`. The extra `/status` segment in the URL path is the signal that this is a status-only change. |
+| Status enum guard | `status` must be exactly `'open'` or `'closed'`. Any other value — `'archived'`, `'paused'`, even a typo — immediately returns HTTP 400. This is called an **enum guard** because it enforces that only the predefined allowed values pass through. |
+| `findById` + 404 | Same lookup pattern as the sibling route. If the sprint doesn't exist, 404. |
+| `item.status = status; item.save()` | Replaces the sprint's status field with the validated value and persists it to MongoDB. |
+| `try/catch → void err → 500` | Same silent error suppression pattern. |
+
+**WHY it exists**: Status is architecturally separated from the other fields because it has its own validation rule (the enum guard) and its own business consequence (locking the entire feedback board). Mixing it into the general PATCH route would make the validation logic messier and harder to test independently.
+
+**HOW it connects**:
+- `sprintService.ts → openRetro(id)` calls this route with `{ status: 'open' }`
+- `sprintService.ts → closeRetro(id)` calls this route with `{ status: 'closed' }`
+- `sprint-setup/page.tsx → handleSave()` decides which one to call based on what the admin selected in the radio buttons
+- `feedback/page.tsx` reads the returned sprint status to decide whether to disable the Submit Feedback button
+
+**Plain English Analogy**: This is the **light switch on the retro room door** — it has exactly two positions (open/closed) and nothing in between. A separate switch from the main control panel (the field-update route) means you can't accidentally toggle the lights while adjusting the thermostat.
+
+---
+
+### `sprintService.ts` (`src/services/sprintService.ts`)
+
+**What it IS**: A client-side helper library that wraps all sprint-related network requests in simple named functions, so the page component never has to write raw `fetch()` calls.
+
+**What it DOES** (block by block):
+
+| Block | Explanation |
+|---|---|
+| `import type { Sprint }` | Imports the `Sprint` **type** (a TypeScript definition that describes what a sprint object looks like — `_id`, `name`, `goal`, `startDate`, `endDate`, `status`, `teamMemberIds`). The `import type` keyword means this import disappears at runtime — it's purely for type-checking during development. |
+| `getActiveSprint()` | Calls `GET /api/sprints`. The response is either a single sprint object (if one is open) or an empty array `[]` (if none exist). The normalisation line `Array.isArray(data) ? null : data` converts the empty-array case into `null` so callers always get either a `Sprint` or `null` — never a confusing empty array. Throws an error on any non-2xx HTTP status. |
+| `createSprint(payload)` | Calls `POST /api/sprints` with `name`, `goal`, `startDate`, and `endDate`. Used when the admin is setting up a brand-new sprint. Returns the newly created `Sprint` from the database. |
+| `updateSprint(id, payload)` | Calls `PATCH /api/sprints/${id}` with only the fields that changed. The `Partial<Pick<Sprint, ...>>` type signature means the payload can include any combination of the five updatable fields — none are required. |
+| `openRetro(id)` | Calls `PATCH /api/sprints/${id}/status` with `{ status: 'open' }`. Returns the updated sprint. |
+| `closeRetro(id)` | Same as `openRetro` but sends `{ status: 'closed' }`. |
+| Error handling pattern | All PATCH/POST functions read the JSON body before checking `res.ok`. If the response is an error (e.g. 400, 404, 500), they throw `new Error(json.error ?? 'Request failed')` — which surfaces the server's own error message to the UI. |
+
+**WHY it exists**: Without this service layer, `sprint-setup/page.tsx` would be cluttered with `fetch()` calls, header setup, JSON parsing, and error handling repeated five times. The service layer extracts that plumbing so the page only needs to call `updateSprint(id, { name })` and handle the result.
+
+**HOW it connects**:
+- Imported by `sprint-setup/page.tsx` at lines 8–14
+- Calls `api/sprints/route.ts` (GET, POST) and `api/sprints/[id]/route.ts` (PATCH) and `api/sprints/[id]/status/route.ts` (PATCH)
+- Returns `Sprint` objects that the page stores in React state
+
+**Plain English Analogy**: This is the **concierge at a hotel** — instead of guests finding the right department themselves (housekeeping, reception, maintenance), they call the concierge who knows the exact phone extension for each task. The page is the guest; the API routes are the departments; `sprintService.ts` is the concierge.
+
+---
+
+### `page.tsx` — Sprint Setup (`src/app/sprint-setup/page.tsx`)
+
+**What it IS**: The main React page component for the Sprint Setup screen — where the admin configures a sprint and non-admin team members view sprint details in read-only mode.
+
+**What it DOES** (block by block):
+
+| Block | Explanation |
+|---|---|
+| `"use client"` | Tells Next.js this file runs in the browser (not on the server). Required for any file that uses React state, event handlers, or browser APIs. |
+| Imports | Pulls in React's `useState` (remembers values across re-renders) and `useEffect` (runs code after the component appears on screen), `useRouter` (navigates between pages), `Trash2` (a bin icon from Lucide), `Shell` (the sidebar layout wrapper), `getCurrentUser`/`getAllUsers` from `userService`, the five sprint service functions, and the `Sprint`/`User` types. |
+| `ResolvedMember` type | A local type describing a team member that has been "resolved" — meaning we looked up the full user object by their ID and pulled out just `_id`, `name`, and `pod`. This avoids storing the full `User` object when we only need display info. |
+| State declarations | The component tracks ~18 pieces of state: the current sprint, whether it's a new sprint, loading/error flags, all form field values (`name`, `goal`, `startDate`, `endDate`, `localStatus`), the team member list, and the "add member" sub-form (`usernameInput`, `memberError`, `isAddingMember`). |
+| Derived values | `dateError` and `saveDisabled` are computed directly from the state — no extra `useState` needed. If `endDate` is earlier than `startDate`, `dateError` becomes a warning string and `saveDisabled` becomes `true`. |
+| `useEffect` on mount | Runs once when the page loads. First checks for a logged-in user (redirects to `/` if none). Then fires `Promise.all([getActiveSprint(), getAllUsers()])` — fetching both the active sprint and all users **in parallel** (simultaneously, not one after the other) for speed. If a sprint exists, all form fields are pre-filled; otherwise `isNewSprint` is set to `true`. |
+| Loading state return | While data is fetching, renders a minimal `<Shell>` with "Loading..." text. The component returns early here — none of the form elements below exist in the DOM yet. |
+| `isAdmin` derivation | `currentUser?.isAdmin === true` — the `?.` is optional chaining (safely reads a property without crashing if the object is `null`). Only the first registered user has `isAdmin: true` in the database. |
+| Admin view (`data-testid="admin-view"`) | Rendered only when `isAdmin` is `true`. Contains all the editable form fields: sprint name input, goal textarea, start/end date inputs (with date error message), two radio buttons for Open/Closed status, the team member list with trash-button rows, the Add Member sub-form, and the Save/Cancel button pair with success/error feedback messages. |
+| `handleSave()` | The most complex handler. If `isNewSprint`, calls `createSprint()` to create a brand-new sprint. Otherwise calls `updateSprint()` to patch the existing one. After saving the fields, if the admin changed the status radio (e.g. from Open to Closed), it separately calls `openRetro()` or `closeRetro()`. On success, shows "Sprint saved." for 2 seconds via `setTimeout`. |
+| `handleAddMember()` | Fetches `GET /api/users?username=<typed value>`. If the API returns an empty array, shows "User not found". If the user is already in the list, shows "User already added". Otherwise appends the user to both `resolvedMembers` (for display) and `teamMemberIds` (for saving). |
+| `handleRemoveMember(id)` | Filters the member out of both state arrays. The trash button beside each member row calls this. |
+| `handleCancel()` | Resets all form fields back to the last saved sprint values (or clears them if no sprint existed). |
+| Non-admin view (`data-testid="readonly-view"`) | Rendered when `isAdmin` is `false`. Displays the same sprint data as plain `<p>` text — no inputs, no Save/Cancel buttons, no Add Member form. Members are listed without trash icons. |
+
+**WHY it exists**: This is the single page where all sprint administration happens. Without it, there is no way to create a sprint, set its dates, add team members, or open/close the retro for feedback. Non-admin users also need a way to view current sprint context before submitting feedback.
+
+**HOW it connects**:
+- On mount: calls `sprintService.getActiveSprint()` → `GET /api/sprints` and `userService.getAllUsers()` → `GET /api/users`
+- On save: calls `sprintService.updateSprint()` or `createSprint()` → `PATCH/POST /api/sprints/[id]`; conditionally calls `openRetro()`/`closeRetro()` → `PATCH /api/sprints/[id]/status`
+- On add member: calls `GET /api/users?username=X` directly via `fetch()`
+- Wrapped inside `<Shell>` which provides the sidebar navigation
+
+**Plain English Analogy**: This page is the **event coordinator's control panel** at a conference venue — the coordinator can set up the room name, schedule the dates, invite attendees, and flip the switch between "registration open" and "registration closed." Guests (non-admin users) who walk past can see the posted schedule on the noticeboard, but they can't change anything.
+
+---
+
+### `route.ts` — GET/POST users (modified) (`src/app/api/users/route.ts`)
+
+> **Sprint 4 change only** — the POST handler and all existing behaviour are unchanged. Only the GET handler was modified.
+
+**What changed**: The GET handler gained the ability to filter users by username.
+
+**Before Sprint 4**, the GET handler always returned every user in the database — no filtering possible.
+
+**After Sprint 4**, three lines were added:
+
+```
+const username = req.nextUrl.searchParams.get('username')
+const query = username ? { username } : {}
+const users = await UserModel.find(query).lean()
+```
+
+**What these lines do**:
+- `req.nextUrl.searchParams.get('username')` reads the `?username=` part of the URL (called a **query parameter** — the extra information after the `?` in a web address). If the caller visits `/api/users?username=janedoe`, `username` becomes `'janedoe'`. If they visit `/api/users` with no `?username=`, it becomes `null`.
+- `const query = username ? { username } : {}` — if a username was provided, build a MongoDB filter object `{ username: 'janedoe' }`. If not, use an empty filter `{}` which matches everything.
+- `UserModel.find(query)` — runs the database query with the filter. A filter of `{}` returns all users (same as before), so existing callers are unaffected.
+
+**WHY this change exists**: The "Add Member" feature in `sprint-setup/page.tsx` needs to look up a user by their username to verify they exist before adding them to the sprint. Without the `?username=` filter, the only option would be to fetch all users and search client-side — wasteful and fragile.
+
+**HOW it connects**: `sprint-setup/page.tsx → handleAddMember()` calls `fetch('/api/users?username=janedoe')`. This route returns an array: one user if found, empty array if not. The page checks the array length to show "User not found" or append the member.
+
+**Plain English Analogy**: Before this change, the filing cabinet only had one setting: "give me everything." Now it has a search drawer — you can either pull all folders or ask "give me only the folder labelled 'janedoe'."
+
+---
+
+### `page.tsx` — Feedback Board (modified) (`src/app/feedback/page.tsx`)
+
+> **Sprint 4 change only** — only the Submit Feedback button was modified. The rest of the page is unchanged from Sprint 3.
+
+**What changed**: The "Submit Feedback" button gained a closed-retro guard.
+
+**Before Sprint 4**, the button always opened the feedback modal when clicked, regardless of sprint status.
+
+**After Sprint 4**, four things were added to the button element (lines 133–138):
+
+| Addition | What it does |
+|---|---|
+| `onClick={() => { if (sprint?.status !== 'closed') setShowModal(true) }}` | The click handler now checks the sprint status before opening the modal. If the retro is closed, the click is silently ignored — the modal never opens. |
+| `disabled={sprint?.status === 'closed'}` | The HTML `disabled` attribute makes the button unclickable and visually faded at the browser level — a second line of defence on top of the click guard. |
+| `aria-label={sprint?.status === 'closed' ? 'Feedback submission is closed' : undefined}` | When closed, adds a text label readable by screen readers (assistive technology for visually impaired users) that announces "Feedback submission is closed" instead of just a greyed-out button. |
+| `+ (sprint?.status === 'closed' ? ' opacity-50 cursor-not-allowed' : '')` appended to `className` | Adds Tailwind classes that visually dim the button (`opacity-50` — 50% transparent) and change the mouse cursor to a "not-allowed" symbol when the user hovers over it. |
+
+**WHY this change exists**: Once an admin closes the retro, no new feedback should be accepted. Without this guard, any team member could still open the modal and submit feedback even after the retro was officially closed — defeating the purpose of the Close Retro feature.
+
+**HOW it connects**: `sprint` state is already fetched on page load via `GET /api/sprints`. The closed retro status flows from: admin clicks "Closed" radio → saves → `closeRetro()` → `PATCH /api/sprints/[id]/status` → MongoDB updated → next time any user loads `/feedback`, `sprint.status` comes back as `'closed'` → button is disabled.
+
+**Plain English Analogy**: This change is like putting a **velvet rope in front of the suggestion box** after the meeting ends. The box is still visible, but the rope (the `disabled` attribute) prevents anyone from dropping in a new note. A sign on the rope (the `aria-label`) explains why.
+
+---
+
+### `sprintService.test.ts` (`src/__tests__/sprintService.test.ts`)
+
+**What it IS**: The automated test file for `sprintService.ts` and the two new sprint API routes, verifying that every service function calls the right URL with the right data and that the API routes respond correctly to edge cases.
+
+**What it DOES** (block by block):
+
+| Block | Explanation |
+|---|---|
+| `// @jest-environment node` | A **directive** (instruction) at the top of the file telling Jest (the testing framework) to run this file in a Node.js environment instead of the default browser-like environment. Required because API route handlers use Node.js built-ins that don't exist in browsers. |
+| `jest.mock('@/lib/db', ...)` | Replaces the real database connection with a fake one that does nothing. Tests should never touch a real database. |
+| `jest.mock('@/lib/models/Sprint', ...)` | Replaces the real Mongoose Sprint model with a fake that has `findOne`, `findById`, and `save` as controllable **mock functions** (functions that record what they were called with and can be programmed to return specific values). |
+| `beforeEach` | Before each individual test, clears all mock call records and resets `global.fetch` to a fresh mock. This ensures tests don't accidentally affect each other. |
+| SS-1 | Mocks `fetch` to return `mockSprint` (an object). Calls `getActiveSprint()`. Asserts the result equals the sprint object. Verifies the normalisation: object → Sprint (not null). |
+| SS-2 | Mocks `fetch` to return `[]` (empty array). Asserts `getActiveSprint()` returns `null`. Verifies the other normalisation path: array → null. |
+| SS-3 | Mocks `fetch` returning a new sprint. Calls `createSprint()`. Asserts `fetch` was called with `POST` method and the correct payload. |
+| SS-4 | Same pattern for `updateSprint()` → verifies `PATCH /api/sprints/sprint-1` called. |
+| SS-5 | Calls `openRetro('sprint-1')`. Verifies `fetch` sent `PATCH /api/sprints/sprint-1/status` with body `{ status: 'open' }`. |
+| SS-6 | Same for `closeRetro()` with `{ status: 'closed' }`. |
+| SS-7 | Directly imports the `PATCH` handler from the route file and calls it with a `NextRequest`. Mocks `SprintModel.findById` to return `null`. Asserts the response has HTTP status 404 and `body.error` matches `/not found/i`. |
+| SS-8 | Calls the status route handler with `{ status: 'archived' }` (invalid value). Asserts HTTP 400 and error message containing `"'open' or 'closed'"`. |
+
+**WHY it exists**: These tests are the safety net for the sprint service and API routes. If someone accidentally changes `updateSprint` to call `/api/sprint` instead of `/api/sprints/${id}`, SS-4 immediately catches it. If someone removes the enum guard from the status route, SS-8 fails. The tests lock in the correct behaviour.
+
+**HOW it connects**: Imports `getActiveSprint`, `createSprint`, `updateSprint`, `openRetro`, `closeRetro` from `sprintService.ts`; imports `PATCH` from `api/sprints/[id]/route.ts` and `api/sprints/[id]/status/route.ts`. Uses mocked `SprintModel` and `global.fetch` — no real network or database involved.
+
+**Plain English Analogy**: This is the **quality control checklist at a factory** — before the product ships, every step on the assembly line is tested with a controlled sample. "Does the label say the right thing? Does the button click correctly?" If any check fails, the line stops.
+
+---
+
+### `sprintSetup.test.tsx` (`src/__tests__/sprintSetup.test.tsx`)
+
+**What it IS**: The integration test file for the Sprint Setup page and the closed-retro guard on the Feedback page, verifying the full user-facing behaviour for both admin and non-admin scenarios.
+
+**What it DOES** (block by block):
+
+| Block | Explanation |
+|---|---|
+| Mocks block | Four top-level `jest.mock()` calls replace: `next/navigation` (so `useRouter` returns a fake `push` function), `@/services/userService` (so `getCurrentUser` and `getAllUsers` are controllable), `@/services/sprintService` (all five functions), and `@/components/layout/Shell` (replaced with a simple `<div data-testid="shell">` wrapper so sidebar rendering doesn't interfere). |
+| `feedbackService` mock | Added because SS-17 renders `FeedbackPage` which imports `feedbackService`. All functions return harmless defaults. |
+| Factory objects | `mockAdminUser` (`isAdmin: true`), `mockNonAdminUser` (`isAdmin: false`), and `mockSprint` are plain JavaScript objects used as test data throughout all tests in this file. |
+| `waitForPageLoaded()` | A helper that pauses the test until `data-testid="sprint-setup-page"` appears in the DOM. This element only renders after the async data fetch completes, making it the correct signal that the page is fully ready. |
+| `beforeEach` | Clears mocks; sets default mocks: admin user logged in, sprint loaded, update resolves successfully. |
+| SS-9 | Sets `getCurrentUser` to return `null`. Renders the page. Asserts `mockPush` was called with `'/'` — the session guard redirect works. |
+| SS-10 | Admin user + loaded sprint → `data-testid="admin-view"` present, `"readonly-view"` absent. |
+| SS-11 | Non-admin user → `data-testid="readonly-view"` present, `"admin-view"` absent. |
+| SS-12 | Clears the name input. Asserts Save button is disabled. (With a loaded sprint, the name is pre-filled — this test explicitly fires a change event to empty it.) |
+| SS-13 | New sprint scenario (`getActiveSprint` returns `null`). Types name + dates. Asserts Save becomes enabled and no date error appears. |
+| SS-14 | Sets end date earlier than start date. Asserts `data-testid="date-error"` appears and Save remains disabled. |
+| SS-15 | Loaded sprint. Clicks Save. Asserts `updateSprint` was called with the sprint's ID and the correct payload. Asserts `data-testid="save-success"` appears afterward. |
+| SS-16 | Admin view. Asserts `data-testid="status-open"` and `data-testid="status-closed"` radio buttons are in the DOM. |
+| SS-17 | Renders `FeedbackPage` (not `SprintSetupPage`). Mocks `global.fetch` to return a sprint with `status: 'closed'`. Waits for the button to appear. Asserts `data-testid="open-modal-btn"` has the `disabled` attribute. |
+
+**WHY it exists**: Unit tests for individual functions can't verify that the Sprint Setup page correctly wires the admin-check to show/hide views, or that typing an invalid date disables the right button. These integration tests render the full React component tree and simulate real user interactions.
+
+**HOW it connects**: Renders `SprintSetupPage` from `sprint-setup/page.tsx` and `FeedbackPage` from `feedback/page.tsx`. All service dependencies are mocked. No real API calls or database queries occur.
+
+**Plain English Analogy**: This is the **dress rehearsal before opening night** — the whole page is assembled with stand-in props (mocked services), actors run through their lines (user interactions are simulated), and a director checks that every scene plays out correctly before the real audience arrives.
+
+---
+
+*End of CODE_EXPLAINER.md — Sprint 2 + Sprint 3 + Sprint 4*
+
+---
+
+---
+
+## Sprint 5 — Session 1 Code Explanation
+_Written by PROFESSOR after DEV session completed on April 12, 2026_
+_Tasks covered: S5-3, S5-4, S5-5, S5-7, S5-8, S5-9, S5-10, S5-11 (S5-1, S5-2, S5-6 skipped — already compliant)_
+
+---
+
+### `dashboard/page.tsx` (`src/app/dashboard/page.tsx`)
+
+**Sprint 5 change summary**: Added a `loadError` state, filled in the previously silent `catch` block, added an error render branch, and added two `data-testid` attributes to the empty-state section.
+
+**What it IS**: The Dashboard page — the first screen a logged-in user sees, showing sprint stats and activity.
+
+**What it DOES (Sprint 5 additions only)**:
+
+- **`const [loadError, setLoadError] = useState(false)` (line 39)** — This is a new piece of **state** (a value the component remembers and watches for changes). `false` means "no error yet." When something goes wrong during data loading, this gets flipped to `true`, which tells React to redraw the page showing an error message instead of the normal dashboard.
+
+- **`catch { setLoadError(true) }` (lines 65–66)** — Before Sprint 5, the `catch` block (the code that runs when something breaks in the `try` section) had only a comment — the error was silently swallowed and the page would just freeze in a loading state. Sprint 5 replaces that with `setLoadError(true)`, which actually records that an error happened and triggers a re-render. The `finally` block (`setIsLoading(false)`) still runs afterwards regardless, so the loading spinner always disappears.
+
+- **Error render branch (lines 87–95)** — A new `if (loadError) return (...)` block sits between the loading check and the normal page return. If `loadError` is `true`, the component **returns early** — it stops building the normal dashboard and instead returns a `<Shell>` wrapper containing a `<div data-testid="load-error">` with the exact text "Something went wrong. Please try again." Early return means the rest of the component function never runs — no stats, no cards, no crashes.
+
+- **`data-testid="dashboard-empty-state"` (line 154) and `data-testid="dashboard-setup-btn"` (line 159)** — These are **test identifiers** — invisible labels that automated tests use to find specific elements on the page, like sticky notes with names on them. They were added to the already-existing empty-state block (the "No sprint data yet" section) so that tests EH-1 and EH-5 can reliably locate these elements.
+
+**WHY it exists**: Without the `catch` fix, any network error (the database is down, Wi-Fi drops) would leave the page stuck on "Loading…" forever with no explanation. Users would have no idea what went wrong.
+
+**HOW it connects**: When the page mounts, `useEffect` calls the `load()` function which hits `/api/sprints` and `getActions()`. If either throws, `setLoadError(true)` fires → React re-renders → the error branch returns the error `<div>` → user sees "Something went wrong." The normal sprint data flow is short-circuited.
+
+**Plain English Analogy**: Think of the old `catch` block like a smoke alarm with no battery — it detects the fire but makes no noise. Sprint 5 puts the battery in: now when something goes wrong, the alarm actually goes off and shows the user a clear message.
+
+---
+
+### `feedback/page.tsx` (`src/app/feedback/page.tsx`)
+
+**Sprint 5 change summary**: Added a `loadError` state, added a missing `catch` block (there was no error handling at all before), added an error render branch, and added a `feedback-empty-state` div for when no sprint is active.
+
+**What it IS**: The Feedback Board page — the three-column view where users submit and read feedback.
+
+**What it DOES (Sprint 5 additions only)**:
+
+- **`const [loadError, setLoadError] = useState(false)` (line 28)** — Same pattern as `dashboard/page.tsx`: a boolean flag that flips to `true` when the data load fails.
+
+- **New `catch` block (lines 70–72)** — Before Sprint 5, the `load()` async function had a `try` block and a `finally` block but **no `catch`**. In JavaScript, if an async function throws an error and nothing catches it, the error is lost and the component may hang or crash silently. Sprint 5 adds `catch { setLoadError(true) }` — any thrown error (network failure, bad response) now sets the error flag. The `finally` block still runs (`setIsLoading(false)`), so the spinner always stops.
+
+- **Error render branch (lines 125–133)** — `if (loadError) return <Shell sprintName=""><div data-testid="load-error">Something went wrong. Please try again.</div></Shell>` — same early-return pattern as Dashboard. The `sprintName=""` is passed as an empty string because we don't have sprint data when an error occurred.
+
+- **`feedback-empty-state` div (lines 157–164)** — `{!sprint && <div data-testid="feedback-empty-state">No active sprint. Set one up to begin.</div>}` — This is a **conditional render** (a React pattern where a piece of UI only appears when a condition is true). When loading finishes successfully but no open sprint exists (`sprint === null`), this div appears above the three-column grid, telling the user why the board is empty. The three columns still render below it (they show their own per-column empty states). This also works with the Sprint 4 closed-retro guard: when there's no sprint, the "Submit Feedback" button is already disabled because `sprint?.status === 'closed'` evaluates to `undefined`, which is falsy — so `disabled={undefined === 'closed'}` → `disabled={false}`. But EH-4 confirms the button is disabled via `sprint?.status !== 'closed'` guard in the `onClick`.
+
+**WHY it exists**: Without a `catch`, a dropped network connection on the Feedback Board would cause the page to either hang indefinitely or crash with an unhandled promise rejection. Users would see a blank or broken page.
+
+**HOW it connects**: `load()` → fetches `/api/sprints` and `/api/users` → if any step throws, `catch` fires → `setLoadError(true)` → error render branch returns. If load succeeds but no sprint is found, `sprint` stays `null` → `{!sprint && ...}` renders the empty-state div.
+
+**Plain English Analogy**: Before Sprint 5, the Feedback Board was a fishing boat with no life preserver — if something went wrong at sea, there was nothing to grab onto. Sprint 5 adds both the life preserver (`catch`) and a harbour sign saying "No active sprint" so users always know where they stand.
+
+---
+
+### `actions/page.tsx` (`src/app/actions/page.tsx`)
+
+**Sprint 5 change summary**: Three `data-testid` attributes added to the existing empty-state block. No logic changed.
+
+**What it IS**: The Action Items page — the list of team commitments with advance/verify controls.
+
+**What it DOES (Sprint 5 additions only)**:
+
+- **`data-testid="actions-empty-state"` (line 186)** — Added to the outer `<div>` that wraps the "No action items yet." message. Gives tests a reliable handle to confirm the empty state is showing.
+
+- **`data-testid="actions-goto-feedback-btn"` (line 196)** — Added to the "Go to Feedback Board" button inside the empty state. Tests can now assert this button exists and is clickable.
+
+- **`data-testid="actions-empty-new-btn"` (line 203)** — Added to the "New Action Item" button inside the empty state (different from the header-level "New Action Item" button which already had `open-new-action-btn`). This distinguishes the two buttons so tests can target the empty-state-specific one.
+
+**WHY it exists**: The empty state already had the right text and buttons. What was missing were the `data-testid` handles that automated tests (EH-5) need to assert "this element is on the screen right now." Without them, tests would have to use fragile text-matching queries that break if the copy changes.
+
+**HOW it connects**: No data flow change. These are purely presentational attributes — they exist only so that `errorHandling.test.tsx` test EH-5 can call `getByTestId('actions-empty-state')` and have it succeed.
+
+**Plain English Analogy**: Imagine shelving units in a warehouse that already had the right boxes in the right spots, but no labels. Sprint 5 sticks labels on the shelves — the warehouse contents didn't change, but now the inventory system can find things automatically.
+
+---
+
+### `SubmitFeedbackModal.tsx` (`src/components/SubmitFeedbackModal.tsx`)
+
+**Sprint 5 change summary**: Added `useRef` and `useEffect` to the React import, added `TESTID_MAP` constant, added `modalRef` and `triggerRef` refs, added two `useEffect([open])` hooks (focus trap + return focus), wired `ref={modalRef}` to the dialog div, added `triggerRef.current?.focus()` to `handleClose`, and added 7 new `data-testid` attributes.
+
+**What it IS**: The modal dialog that slides in when a user clicks "Submit Feedback" — contains the category selector, content textarea, suggestion field, and anonymous toggle.
+
+**What it DOES (Sprint 5 additions only)**:
+
+- **Updated import (line 3): `import { useState, useRef, useEffect } from 'react'`** — `useRef` (a React tool that creates a persistent container — called a **ref** — that holds a reference to a DOM element or any value, and updating it does NOT cause the component to redraw) and `useEffect` (a React tool that runs a side effect — code that touches the outside world — after the component renders) are added alongside the existing `useState`.
+
+- **`TESTID_MAP` constant (lines 25–29)** — A plain JavaScript object declared **outside the component function**. This is important: anything declared inside a React component function is recreated every time the component re-renders. `TESTID_MAP` is a static lookup table that maps each `FeedbackCategory` value (`'slowed-us-down'`, `'should-try'`, `'went-well'`) to its corresponding `data-testid` string. Putting it outside means it is created once when the module loads and never again — no wasted work on every render.
+
+- **`const modalRef = useRef<HTMLDivElement>(null)` (line 38)** — Creates a ref that will hold a pointer to the dialog's `<div>` element once it mounts. `HTMLDivElement` is the TypeScript type for a `<div>` in the browser DOM. `null` is the starting value before the div exists. The `ref={modalRef}` attribute on the dialog div (line 101) connects them — React fills in `modalRef.current` with the actual DOM node after render.
+
+- **`const triggerRef = useRef<HTMLElement | null>(null)` (line 39)** — A ref that will store whichever button was focused when the modal opened (the "Submit Feedback" button in the page header). `HTMLElement` is the TypeScript type for any DOM element. This is used to return focus to that button when the modal closes.
+
+- **Trigger-capture `useEffect` (lines 41–45)**:
+  ```
+  useEffect(() => {
+    if (open) {
+      triggerRef.current = document.activeElement as HTMLElement
+    }
+  }, [open])
+  ```
+  This effect fires every time `open` changes. When `open` becomes `true` (modal is opening), `document.activeElement` — the browser's record of which element currently has keyboard focus — is captured and stored in `triggerRef.current`. This must happen at **open time** (not close time) because the moment the modal renders, focus moves into the modal and `document.activeElement` changes — the opener button is no longer focused. Capturing it now preserves a reference to it for later.
+
+- **Focus-trap `useEffect` (lines 47–67)** — This is the core accessibility mechanism:
+  1. If `!open`, return immediately — no listener should attach when the modal is hidden.
+  2. Get `modal = modalRef.current` — the actual DOM div.
+  3. `modal.querySelectorAll(...)` — searches inside the modal div for every element a keyboard user can Tab to: `button`, `[href]`, `input`, `select`, `textarea`, and anything with a `tabindex` that isn't `-1` (which means "skip me"). The result is a list of DOM nodes, sorted in document order.
+  4. `first` = the first focusable element; `last` = the last.
+  5. `handleKeyDown` — a function that listens for every keypress inside the modal. If the key is Tab:
+     - **Shift+Tab** (backward): if the user is on the `first` element, prevent the browser from leaving the modal (`e.preventDefault()`) and manually jump focus to `last`.
+     - **Tab** (forward): if the user is on the `last` element, prevent leaving and jump to `first`.
+     - Any other key: do nothing.
+  6. `modal.addEventListener('keydown', handleKeyDown)` — attaches the listener to the modal div so it catches Tab presses from any child element.
+  7. `first?.focus()` — moves keyboard focus into the modal automatically when it opens, so the user doesn't have to click.
+  8. `return () => modal.removeEventListener('keydown', handleKeyDown)` — the **cleanup function**. React calls this before the next effect run or when the component unmounts. Removing the listener prevents memory leaks and ghost key handlers.
+
+- **`triggerRef.current?.focus()` in `handleClose()` (line 81)** — After `onClose()` is called (which sets `open` to `false` in the parent), this line fires the `focus()` method on whatever element was stored in `triggerRef`. The `?.` is **optional chaining** — if `triggerRef.current` is `null` (i.e. the ref was never set), the call is silently skipped instead of throwing an error. Result: keyboard focus returns to the "Submit Feedback" button the user originally pressed.
+
+- **`ref={modalRef}` on the dialog div (line 101)** — Connects the DOM element to the ref. Without this, `modalRef.current` would be `null` and the focus trap would immediately return.
+
+- **New `data-testid` attributes**: `sfm-cancel-btn` (line 216), `sfm-content` (line 167), `sfm-suggestion` (line 189), `sfm-anonymous` (line 203), and per-radio `data-testid={TESTID_MAP[opt.value]}` (line 150) — each input and button now has a unique test identifier. The radio inputs use `TESTID_MAP` to derive their testid from the `opt.value` being rendered in the `.map()` loop, so the same line of code produces three different testids (`sfm-category-slowed`, `sfm-category-try`, `sfm-category-well`) for the three radio options.
+
+**WHY it exists**: Screen reader users and keyboard-only users navigate with Tab. Without a focus trap, pressing Tab on the last element in the modal would move focus to the browser's address bar or to page elements behind the modal — the user loses the modal entirely. Without return focus, closing the modal would leave keyboard focus stranded with no visible indicator of where it landed.
+
+**HOW it connects**: The modal is opened by `feedback/page.tsx` passing `open={true}`. The `open` prop triggers both `useEffect([open])` hooks. The modal div is connected to `modalRef` via `ref={modalRef}`. When `handleClose()` is called (by the × button, Cancel button, or overlay click), `triggerRef.current?.focus()` returns focus to the page.
+
+**Plain English Analogy**: Think of the focus trap like a revolving door at a bank vault — once you step inside, the door only spins within the vault room. You can't accidentally walk out into the street. And when the bank teller buzzes you out, the door deposits you back at the exact spot on the sidewalk where you first stepped in.
+
+---
+
+### `NewActionItemModal.tsx` (`src/components/NewActionItemModal.tsx`)
+
+**Sprint 5 change summary**: Identical focus-trap pattern as `SubmitFeedbackModal` — `useRef`/`useEffect` added to import, `modalRef` + `triggerRef` refs, two `useEffect([open])` hooks, `ref={modalRef}` on the dialog div, `triggerRef.current?.focus()` in `handleClose`, six new `data-testid` attributes.
+
+**What it IS**: The modal that appears when a user clicks "New Action Item" — lets the user fill in title, description, owner, and due date.
+
+**What it DOES (Sprint 5 additions only)**:
+
+All Sprint 5 mechanics are **identical** to `SubmitFeedbackModal` — same two `useEffect([open])` hooks, same `modalRef`/`triggerRef` pair, same `handleClose` return-focus call. The only difference is which elements exist inside the modal.
+
+- **`data-testid="nam-close-btn"` (line 117)** — Added to the × close button in the header (previously had `aria-label` but no testid).
+- **`data-testid="nam-cancel-btn"` (line 198)** — Added to the Cancel button in the footer.
+- **`data-testid="nam-title-input"` (line 134)** — Added to the title `<input>`.
+- **`data-testid="nam-description"` (line 150)** — Added to the description `<textarea>`.
+- **`data-testid="nam-owner"` (line 166)** — Added to the owner `<select>`.
+- **`data-testid="nam-due-date"` (line 185)** — Added to the due date `<input>`.
+
+**WHY it exists**: Same reason as SFM — keyboard users need focus to be trapped inside the modal while it is open, and returned to the "New Action Item" header button when it closes.
+
+**HOW it connects**: Opened by `actions/page.tsx` passing `open={showNewModal}`. Focus trap fires on `[open]`. Tests EH-8 assert `nam-close-btn`, `nam-title-input`, and `nam-owner` are present.
+
+**Plain English Analogy**: This modal is like a form handed to you at a doctor's reception desk. Sprint 5 adds a rope barrier around the waiting area — you fill in the form without accidentally wandering into the back office — and when you hand the form back, the receptionist guides you back to your original seat.
+
+---
+
+### `ConvertActionModal.tsx` (`src/components/ConvertActionModal.tsx`)
+
+**Sprint 5 change summary**: `useRef` added to the existing `useState, useEffect` import line; same `modalRef` + `triggerRef` pattern; two new `useEffect([open])` hooks added **separately** from the existing `useEffect([feedbackItem])` hook; six new `data-testid` attributes.
+
+**What it IS**: The modal that opens when a user clicks "Convert to Action" on a feedback card — pre-fills the title from the feedback content and lets the user complete the action item details.
+
+**What it DOES (Sprint 5 additions only)**:
+
+- **Import update (line 3)**: `import { useState, useEffect, useRef } from 'react'` — `useRef` is added to the existing import. `useEffect` was already there (for the pre-fill logic).
+
+- **Three separate `useEffect` calls (lines 34–66)**:
+  1. **`useEffect([open])` — trigger capture** (lines 34–38): stores `document.activeElement` in `triggerRef` when modal opens.
+  2. **`useEffect([open])` — focus trap** (lines 40–60): identical Tab-cycle listener to SFM and NAM.
+  3. **`useEffect([feedbackItem])` — title pre-fill** (lines 62–66): this was **already present from Sprint 3**. It watches `feedbackItem` and sets the title input to `feedbackItem.content` whenever a new feedback item is passed in.
+
+  The critical rule: these three `useEffect` calls remain **separate**. Merging `[open]` and `[feedbackItem]` into one `useEffect([open, feedbackItem])` would cause the focus trap to re-run every time a new `feedbackItem` prop arrives, even if the modal is already open — potentially re-moving focus unexpectedly.
+
+- **Six `data-testid` additions**: `cam-close-btn` (line 125), `cam-cancel-btn` (line 211), `cam-title-input` (line 147), `cam-description` (line 163), `cam-owner` (line 179), `cam-due-date` (line 198).
+
+**WHY it exists**: Without the focus trap, a keyboard user could Tab out of the Convert modal into the underlying feedback board while the modal is still visible — extremely confusing. The three separate `useEffect` calls ensure each concern is isolated and only re-runs when its specific dependency changes.
+
+**HOW it connects**: Opened by `feedback/page.tsx` when `handleConvert(item)` is called. `feedbackItem` prop triggers title pre-fill. `open` prop triggers focus trap and trigger capture. Tests EH-9 assert `cam-close-btn`, `cam-title-input`, and `cam-owner`.
+
+**Plain English Analogy**: Think of the three `useEffect` hooks as three separate motion sensors in a room: one triggers when the door opens (modal `open`), one triggers when the door opens too (same signal, different action), and one triggers when a new parcel arrives (`feedbackItem`). Each sensor does its one job and doesn't interfere with the others.
+
+---
+
+### `VerifyImpactModal.tsx` (`src/components/VerifyImpactModal.tsx`)
+
+**Sprint 5 change summary**: `useRef` and `useEffect` added to import (previously only `useState`); `modalRef` + `triggerRef` refs; two `useEffect([open])` hooks; `ref={modalRef}` on dialog div; `triggerRef.current?.focus()` in `handleClose`; three new `data-testid` attributes.
+
+**What it IS**: The modal that opens when a user clicks "Verify" on a completed action item — asks the user to write a brief impact statement proving the action made a real difference.
+
+**What it DOES (Sprint 5 additions only)**:
+
+The focus-trap and return-focus mechanics are **identical** to SFM and NAM — same two `useEffect([open])` hooks, same refs, same `handleClose` addition. This modal is simpler (fewer inputs) so fewer testids are needed:
+
+- **`data-testid="vim-close-btn"` (line 100)** — × close button in header.
+- **`data-testid="vim-cancel-btn"` (line 145)** — Cancel button in footer.
+- **`data-testid="vim-impact"` (line 130)** — The impact statement `<textarea>`. This is the one user-facing input in this modal (title is display-only, char counter is read-only).
+
+**WHY it exists**: Same keyboard accessibility reasons — focus must stay within the modal while open and return to the "Verify" button (on the `ActionItemCard`) when closed.
+
+**HOW it connects**: Opened by `actions/page.tsx` when `handleVerify(item)` fires (`setShowVerifyModal(true)`). `open` prop triggers both `useEffect` hooks. Tests EH-10 assert `vim-close-btn`, `vim-impact`, and `verify-impact-submit-btn` (pre-existing).
+
+**Plain English Analogy**: This modal is the final stamp on a passport — a short form that certifies the journey actually happened. Sprint 5 adds the velvet rope that keeps the queue orderly (focus trap) and the sign that points you back to the departure gate when you're done (return focus).
+
+---
+
+### `users/route.ts` (`src/app/api/users/route.ts`)
+
+**Sprint 5 change summary**: The `GET` handler's `req` parameter was changed from `req: NextRequest` (required) to `req?: NextRequest` (optional), and all access to its properties was updated to use optional chaining (`?.`).
+
+**What it IS**: The API route that handles user lookup — `GET /api/users` returns all users; `GET /api/users?username=X` returns the matching user (added in Sprint 4).
+
+**What it DOES (Sprint 5 change only)**:
+
+- **Before Sprint 5** (Sprint 4 version): `export async function GET(req: NextRequest)` — `req` was a **required parameter** (TypeScript type: `NextRequest`, which is the Next.js class for incoming HTTP requests).
+
+- **After Sprint 5**: `export async function GET(req?: NextRequest)` — The `?` after `req` makes it an **optional parameter** in TypeScript. This means the function can be called with or without providing a `req` argument. The TypeScript compiler no longer complains if a caller omits it.
+
+- **Why the `?` was needed**: The existing test file `userApi.test.ts` (written in Sprint 1) calls the `GET` handler directly as `GET()` with no argument — it was testing the handler before the Sprint 4 `?username` filter was added. When Sprint 4 added `req: NextRequest` as a required param, TypeScript's compiler flagged the test's `GET()` call as an error (missing required argument). Sprint 5 fixes this at the source: making `req` optional means the existing test call `GET()` is now valid TypeScript.
+
+- **`req?.nextUrl?.searchParams?.get('username')` (line 8)** — The `?.` is **optional chaining**. Each `?.` means "if the thing on the left is `null` or `undefined`, stop here and return `undefined` instead of crashing." So:
+  - If `req` is `undefined` (no request object passed) → the whole chain returns `undefined` → `username` becomes `null` (via `?? null`) → `query = {}` → all users returned.
+  - If `req` exists but has no `?username` param → `.get('username')` returns `null` → same result.
+  - If `req` exists with `?username=janedoe` → `.get('username')` returns `'janedoe'` → `query = { username: 'janedoe' }` → filtered result.
+
+- **Backward compatibility**: All existing callers of `GET /api/users` (the front-end pages `feedback/page.tsx`, `actions/page.tsx`, and `userService.getAllUsers()`) call the URL without a `?username` param. The HTTP framework still passes a real `NextRequest` object to the handler at runtime — the `req?` change only matters to TypeScript's type checker and to direct unit-test calls. Runtime behaviour is unchanged. ✅
+
+**WHY it exists**: Without this fix, `corepack yarn tsc --noEmit` would report a type error on the existing `userApi.test.ts` file — the Sprint 1 test that calls `GET()` with no argument. The build gate would fail. This is an upstream fix (fixing the function signature) rather than a downstream workaround (changing the test).
+
+**HOW it connects**: `GET /api/users` is called by three places: `userService.ts` (`getAllUsers()`), `feedback/page.tsx` (users fetch for ConvertActionModal), and `actions/page.tsx` (users fetch for NewActionItemModal). Sprint 4 also added `sprint-setup/page.tsx` calling `GET /api/users?username=X`. All callers are unaffected by the `req?` change.
+
+**Plain English Analogy**: Imagine a receptionist desk with a sign-in sheet. Before Sprint 5, the rule said "you MUST hand the receptionist your visitor badge" — but old security footage (the Sprint 1 test) showed people walking up without a badge and it was flagged as a violation. Sprint 5 changes the rule to "badge is optional" — the receptionist can still read it if you bring one, but won't turn you away if you don't. Everyone who already brings a badge (the real HTTP callers) is completely unaffected.
+
+---
+
+### `errorHandling.test.tsx` (`src/__tests__/errorHandling.test.tsx`)
+
+**What it IS**: A new Jest test file containing 10 integration tests (EH-1 through EH-10) that verify Sprint 5's error handling, empty states, form validation, and modal accessibility attributes.
+
+**What it DOES (block by block)**:
+
+- **Imports (lines 1–4)**: Pulls in React, RTL's `render`/`screen`/`waitFor`/`fireEvent` tools, and `@testing-library/jest-dom` (which adds custom matchers like `toBeInTheDocument()` and `toBeDisabled()` to Jest).
+
+- **`jest.mock(...)` blocks (lines 5–43)**: Four service/component mocks registered before any `import` of actual pages:
+  - `next/navigation` — provides a fake `useRouter` that returns a recordable `mockPush` function.
+  - `@/services/userService` — `getCurrentUser` is a `jest.fn()` so tests can control what it returns.
+  - `@/services/feedbackService` — all five functions mocked; `getFeedbackByLane` defaults to returning an empty array.
+  - `@/services/actionService` — all seven functions mocked; `getActions` is a `jest.fn()` so EH-2 and EH-5 can control its return value.
+  - `@/components/layout/Shell` — replaced with a thin `<div data-testid="shell">{children}</div>` wrapper (the real Shell renders a full sidebar which isn't needed here).
+
+- **Page and component imports (lines 45–54)**: `DashboardPage`, `FeedbackPage`, `ActionsPage`, and all four modal components are imported **after** the mocks. This order is required — Jest's mock system must be set up before the modules it intercepts are loaded.
+
+- **`mockUser` and `mockSprint` fixtures (lines 56–76)**: Reusable fake data objects that look like real `User` and `Sprint` database records (matching the interfaces in `types/index.ts`). Tests use these to feed realistic data to components without needing a real database.
+
+- **`beforeEach` block (lines 78–83)**: Runs before every single test:
+  - `jest.clearAllMocks()` — resets call counts and return values on all mocked functions.
+  - `mockPush.mockReset()` — specifically resets the router push recorder.
+  - `(global.fetch as jest.Mock) = jest.fn()` — replaces the browser's built-in `fetch` with a Jest mock (a recordable fake). Cast `as jest.Mock` is needed because TypeScript knows `global.fetch` is a real function, not a mock.
+  - `(getCurrentUser as jest.Mock).mockReturnValue(mockUser)` — sets the default: most tests assume a logged-in user.
+
+- **EH-1 (lines 87–94)** — `getCurrentUser` returns `null` (no session) → renders `DashboardPage` → `waitFor` confirms `mockPush` was called with `'/'` → asserts empty-state and load-error are NOT shown. Tests the pre-existing auth guard.
+
+- **EH-2 (lines 98–112)** — `fetch` is set to `mockRejectedValue(new Error('Network Error'))` (always throws) → renders `DashboardPage` → `waitFor` until `load-error` appears → asserts text "Something went wrong." and shell present, empty-state absent. Tests the Sprint 5 catch fix.
+
+- **EH-3 (lines 116–133)** — URL-discriminating `fetch` mock: `/api/sprints` returns `ok: false` → renders `ActionsPage` → waits for loading to finish → asserts `getByText('Failed to load data.')`. The pre-existing Sprint 3 error state uses plain text, not `data-testid="load-error"` — this test confirms the old pattern still works.
+
+- **EH-4 (lines 137–159)** — `/api/sprints` returns an empty array `[]` (no active sprint) → renders `FeedbackPage` → waits for loading → asserts `feedback-empty-state` with correct text and `open-modal-btn` is disabled. Tests Sprint 5 empty-state addition.
+
+- **EH-5 (lines 163–183)** — `getActions` returns `[]` and `/api/sprints` returns `mockSprint` → renders `ActionsPage` → waits until `actions-empty-state` is in the DOM → asserts both CTA buttons also present. Tests the Sprint 5 testid additions to the empty state.
+
+- **EH-6 (lines 187–211)** — Renders `SubmitFeedbackModal` with `open={true}` → asserts `modal-submit-btn` is disabled → fires `change` on `sfm-content` with text → asserts button is now enabled → clears text → asserts disabled again. Tests Sprint 5 `sfm-content` testid and pre-existing submit-disabled logic.
+
+- **EH-7 through EH-10 (lines 215–314)** — Each renders one of the four modals and asserts: `getByRole('dialog')` exists, `aria-labelledby` attribute matches the spec, container `data-testid` present, and at least two Sprint 5 testids (close button + one input) present. These confirm the accessibility attributes and testid additions simultaneously.
+
+**WHY it exists**: The Sprint 5 code changes touch error paths and empty states that the existing tests (FB-1–FB-16, AI-1–AI-14, SS-1–SS-17) never exercise — those tests always mock successful responses. EH-1–EH-10 specifically target the failure paths and edge states.
+
+**HOW it connects**: Tests render real React page components and modal components. All external dependencies (API calls, navigation, session) are mocked. Tests make assertions using `data-testid` attributes — which is exactly why Sprint 5 added those testids to the source files.
+
+**Plain English Analogy**: EH-1–EH-10 are like a building's fire drill — the normal workday tests (FB, AI, SS) verify that the building runs smoothly when everything is fine. These tests specifically test what happens when the fire alarm goes off: does the emergency exit open? Is the assembly point clearly marked? Does everyone get out safely?
+
+---
+
+---
+
+# Bug Fix Sprint — Session 1
+
+**Date**: April 2026
+**Agent**: PROFESSOR
+**Purpose**: Explain all code changes made during the Bug Fix Sprint to resolve issues found during Replit smoke testing.
+
+---
+
+## File 1: `src/app/page.tsx` — Sign In / Register Two-Mode Landing Page
+
+**WHAT changed**: The entire page was rewritten. It used to show only a "Register" form (name + username + pod → create new user). It now shows a card with **two tabs** at the top: "Sign In" and "Register". The page defaults to the Sign In tab.
+
+**Sign In tab**: Shows a single username field. When submitted, it calls `GET /api/users?username=X` (via `getAllUsers()` filtered client-side). If the username exists in the database, it stores the user in `sessionStorage` (via `cacheUser`) and redirects to `/dashboard`. If not found, it shows an inline error: *"Username not found. Check the spelling or register a new account."*
+
+**Register tab**: Unchanged from before — name, username, pod → creates a new user via `POST /api/users` → stores and redirects.
+
+**WHY it was needed**: `sessionStorage` is cleared when a browser tab or window is closed. Before this fix, if a returning user lost their session, they had no way to get back in — the only option was the registration form, which would fail because their username was already taken (duplicate key error from MongoDB). The Sign In tab solves this: enter your existing username, get back in instantly.
+
+**HOW the two modes stay separate**: There are two completely independent sets of state variables — `signinUsername / signinLoading / signinError` for the Sign In tab, and `name / username / pod / registerLoading / registerError` for the Register tab. Switching tabs calls `switchMode()` which clears both error states but leaves the field values alone.
+
+**Plain English Analogy**: Think of it like a hotel check-in desk. Before this fix, the desk only had a "New Guest Registration" window. If you were a returning guest who lost your keycard, you had no window to visit. Now there's also a "Returning Guest" window — just give your name, get a new keycard, and you're back in your room.
+
+---
+
+## File 2: `src/app/dashboard/page.tsx` — Fix "Something Went Wrong" Error
+
+**WHAT changed**: The `load()` function inside `useEffect` was restructured. Previously it used `Promise.all` to fetch the sprint and action items simultaneously — but it called `getActions()` with **no argument**. Now it fetches the sprint first, derives the active sprint, and only then calls `getActions(activeSprint._id)` if a sprint exists. If there is no active sprint, it defaults to an empty array.
+
+**WHY it was needed**: `GET /api/actions` requires a `sprintId` query parameter — it returns HTTP 400 (`"sprintId is required"`) if none is provided. The old code called `getActions()` with no `sprintId`, which hit the API without the required parameter, got a 400 back, and the `if (!res.ok) throw` in `getActions` caused an exception. That exception was caught by the outer `try/catch`, which set `loadError = true`, causing the red "Something went wrong" banner every time the dashboard loaded.
+
+**HOW it works now**: Fetch sprint → derive `activeSprint` → `activeSprint ? await getActions(activeSprint._id) : []`. If there's no open sprint, actions just defaults to `[]` with no API call at all.
+
+**Plain English Analogy**: It's like asking a librarian to fetch books from a section, but forgetting to tell them which section. The librarian comes back confused. Now we tell them the section first — or if there's no section yet, we just say "no books needed today."
+
+---
+
+## File 3: `src/app/feedback/page.tsx` — Fix Submit Feedback Button Incorrectly Enabled
+
+**WHAT changed**: One line on the "Submit Feedback" button:
+- **Before**: `disabled={sprint?.status === 'closed'}`
+- **After**: `disabled={!sprint || sprint.status === 'closed'}`
+
+The `onClick` guard was also tightened from `if (sprint?.status !== 'closed')` to `if (sprint && sprint.status !== 'closed')`.
+
+The `aria-label` was also updated to cover both cases: `'No active sprint'` when `sprint` is null, or `'Feedback submission is closed'` when the sprint is closed.
+
+**WHY it was needed**: When there is no active sprint (`sprint === null`), the expression `sprint?.status === 'closed'` evaluates to `undefined === 'closed'` which is `false` — so the button appeared **enabled** even with no sprint. Clicking it hit the `onSubmitFeedback` handler which has a guard `if (!user || !sprint) return` — so it silently did nothing. The user could click the button, the modal would open (or not), and nothing would save. Adding `!sprint` as the first condition short-circuits the check correctly.
+
+**Plain English Analogy**: The old lock on the door only checked "is the door locked from the inside?" It didn't check whether a door existed at all. Now it first checks if there's a door, then checks if it's locked.
+
+---
+
+## File 4: `src/app/api/actions/[id]/regress/route.ts` — New API Route: Move Back Action Item Status
+
+**WHAT it does**: A new `PATCH` endpoint at `/api/actions/:id/regress`. It looks up an action item by its MongoDB `_id`, then moves it one step **backward** in the status chain:
+- `in-progress` → `open`
+- `completed` → `in-progress`
+
+Attempting to regress an `open` or `verified` item returns HTTP 409 (`"Cannot regress: item is already open or verified"`). `verified` items are intentionally blocked from regressing — once an impact is verified, that record is permanent.
+
+**WHY it was needed**: The advance route only moves forward (`open → in-progress → completed`). If a user accidentally advanced an item too far, or wants to re-open work, there was no way to go back. This route mirrors the advance route's pattern exactly.
+
+**HOW it works**: Uses a `REGRESS_MAP` object (`{ 'in-progress': 'open', 'completed': 'in-progress' }`) — same pattern as `ADVANCE_MAP` in the advance route. If the current status is not in the map, the item cannot be regressed.
+
+---
+
+## File 5: `src/services/actionService.ts` — New `regressStatus` Function
+
+**WHAT changed**: One new exported async function `regressStatus(itemId: string)` was added. It calls `PATCH /api/actions/:id/regress` and returns the updated `ActionItem`. Pattern is identical to the existing `advanceStatus` function directly above it.
+
+---
+
+## File 6: `src/components/ActionItemCard.tsx` — Add "Move Back" Button
+
+**WHAT changed**: 
+1. The `ActionItemCardProps` interface gained a new required prop: `onRegress: (itemId: string) => void`.
+2. A **"Move Back"** button was added to the footer action buttons, rendered in slate colour (neutral, to distinguish it from the blue "Advance Status" and purple "Verify Impact" buttons).
+3. The button appears for `in-progress` and `completed` items — the same statuses that `REGRESS_MAP` supports.
+
+**Button layout in the card footer** (left to right): Move Back → Advance Status / Verify Impact. Move Back always sits to the left of the forward-progress action so the visual direction is intuitive.
+
+---
+
+## File 7: `src/app/actions/page.tsx` — Wire Up Regress in the Actions Page
+
+**WHAT changed**:
+1. `regressStatus` imported from `@/services/actionService`.
+2. New `handleRegress(itemId)` async function — calls `regressStatus(itemId)`, then `refetch(sprint._id)` to refresh the list. Error is silently swallowed (same pattern as `handleAdvance`).
+3. `onRegress={handleRegress}` prop passed to every `<ActionItemCard>`.
+
+---
+
+*End of CODE_EXPLAINER.md — Sprint 2 + Sprint 3 + Sprint 4 + Sprint 5 + Bug Fix Sprint*

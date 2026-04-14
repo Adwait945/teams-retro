@@ -555,6 +555,10 @@ getCurrentUser(): User | null
   // Reads sessionStorage["retro_current_user"] (client-only identity cache)
   // Returns null if not registered yet — triggers redirect to /
 
+cacheUser(user: User): void
+  // Writes user to sessionStorage["retro_current_user"]
+  // Called after both Sign In and Register to establish the session
+
 getAllUsers(): Promise<User[]>
   // GET /api/users → reads from MongoDB users collection
 ```
@@ -603,6 +607,11 @@ advanceStatus(actionId: string): ActionItem
   // open → in-progress → completed
   // Does NOT advance to "verified" — that requires verifyImpact()
   // PATCH /api/actions/[id]/advance
+
+regressStatus(actionId: string): ActionItem
+  // completed → in-progress → open
+  // Cannot regress "open" or "verified" items (returns 409)
+  // PATCH /api/actions/[id]/regress
 
 verifyImpact(actionId: string, impactNote: string): ActionItem
   // Only valid when status === "completed"
@@ -767,7 +776,8 @@ Every significant design decision made during the design sessions, with rational
 
 | Screen | Scope 1 | Scope 2 | Scope 3 |
 |---|:---:|:---:|:---:|
-| Registration | ✅ | ✅ | ✅ (replaced by invite code) |
+| Sign In (returning user) | ✅ | ✅ | ✅ |
+| Registration (new user) | ✅ | ✅ | ✅ (replaced by invite code) |
 | Feedback Board | ✅ | ✅ | ✅ |
 | Submit Feedback Modal | ✅ | ✅ | ✅ |
 | Dashboard | ❌ | ✅ | ✅ |
@@ -1592,3 +1602,39 @@ There is no tutorial, no onboarding flow, no email verification. The Reframe Rul
 | Facilitator satisfaction | "Would use again" = 5/5 | Informal conversation after Sprint 1 |
 | Action completion rate (Phase 1) | ≥ 1 verified action per sprint | Dashboard metric |
 | Expansion trigger | Phase 2 starts | When Phase 1 success gates pass |
+
+---
+
+## 21. Bug Fix Sprint — Changelog
+
+**Date**: April 2026
+**Trigger**: Replit smoke test identified 4 functional gaps versus the signed-off UI mocks.
+
+### Bugs Fixed
+
+| # | Bug | Root Cause | Files Changed |
+|---|---|---|---|
+| **F1** | No way to log in as a returning user | `page.tsx` was register-only; `sessionStorage` clears on tab close | `src/app/page.tsx` |
+| **F2** | Dashboard showed "Something went wrong" on every load | `getActions()` called with no `sprintId` → API returned HTTP 400 | `src/app/dashboard/page.tsx` |
+| **F3** | Submit Feedback button enabled with no active sprint | `disabled={sprint?.status === 'closed'}` evaluates to `false` when `sprint` is `null` | `src/app/feedback/page.tsx` |
+| **F4** | No way to move an action item backward in status | Advance route was one-directional only; no regress route existed | `src/app/api/actions/[id]/regress/route.ts`, `src/services/actionService.ts`, `src/components/ActionItemCard.tsx`, `src/app/actions/page.tsx` |
+
+### F1 Detail — Sign In / Register Two-Mode Page
+
+`src/app/page.tsx` was rewritten to support two modes via a tab selector:
+- **Sign In tab** (default): single username field → looks up user in MongoDB via `GET /api/users?username=X` → calls `cacheUser()` → redirects to `/dashboard`
+- **Register tab**: unchanged form (name + username + pod → creates new user via `POST /api/users`)
+
+This resolves the session recovery problem: `sessionStorage` is cleared whenever a browser tab or window closes. Without a Sign In path, returning users had no way back in.
+
+### F2 Detail — Dashboard `getActions` Fix
+
+`dashboard/page.tsx` was refactored to fetch the sprint first, then conditionally call `getActions(activeSprint._id)` only when an open sprint exists. If no sprint is open, actions defaults to `[]` with no API call.
+
+### F3 Detail — Feedback Button Guard Fix
+
+Changed `disabled={sprint?.status === 'closed'}` → `disabled={!sprint || sprint.status === 'closed'}`. Also tightened the `onClick` guard and updated `aria-label` to include the no-sprint case.
+
+### F4 Detail — Action Item Regress (Move Back)
+
+New `PATCH /api/actions/[id]/regress` route with `REGRESS_MAP: { 'in-progress': 'open', 'completed': 'in-progress' }`. Mirrors the advance route pattern. `open` and `verified` items cannot be regressed. New `regressStatus()` function added to `actionService.ts`. `ActionItemCard` gained an `onRegress` prop and a slate-coloured **Move Back** button rendered for `in-progress` and `completed` items.
