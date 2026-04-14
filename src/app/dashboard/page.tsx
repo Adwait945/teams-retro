@@ -47,10 +47,7 @@ export default function DashboardPage() {
 
     async function load() {
       try {
-        const [sprintRes, fetchedActions] = await Promise.all([
-          fetch("/api/sprints"),
-          getActions(),
-        ])
+        const sprintRes = await fetch("/api/sprints")
         const sprintData = await sprintRes.json()
 
         let activeSprint: Sprint | null = null
@@ -59,6 +56,8 @@ export default function DashboardPage() {
         } else if (sprintData && sprintData.status === "open") {
           activeSprint = sprintData
         }
+
+        const fetchedActions = activeSprint ? await getActions(activeSprint._id) : []
 
         setSprint(activeSprint)
         setActions(fetchedActions)

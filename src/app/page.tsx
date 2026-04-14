@@ -3,36 +3,71 @@
 import { useState, useEffect } from "react"
 import { useRouter } from "next/navigation"
 import { Hexagon } from "lucide-react"
-import { registerUser, getCurrentUser, cacheUser } from "@/services/userService"
+import { registerUser, getCurrentUser, cacheUser, getAllUsers } from "@/services/userService"
 
 export default function RegistrationPage() {
   const router = useRouter()
+  const [mode, setMode] = useState<"signin" | "register">("signin")
+
+  // Sign-in state
+  const [signinUsername, setSigninUsername] = useState("")
+  const [signinLoading, setSigninLoading] = useState(false)
+  const [signinError, setSigninError] = useState<string | null>(null)
+
+  // Register state
   const [name, setName] = useState("")
   const [username, setUsername] = useState("")
   const [pod, setPod] = useState("")
-  const [isLoading, setIsLoading] = useState(false)
-  const [error, setError] = useState<string | null>(null)
+  const [registerLoading, setRegisterLoading] = useState(false)
+  const [registerError, setRegisterError] = useState<string | null>(null)
 
   useEffect(() => {
     const user = getCurrentUser()
     if (user) router.push("/dashboard")
   }, [router])
 
-  const isDisabled = !name || !username || !pod || isLoading
+  function switchMode(next: "signin" | "register") {
+    setMode(next)
+    setSigninError(null)
+    setRegisterError(null)
+  }
 
-  async function handleSubmit(e: React.FormEvent) {
+  async function handleSignIn(e: React.FormEvent) {
     e.preventDefault()
-    setIsLoading(true)
-    setError(null)
+    setSigninLoading(true)
+    setSigninError(null)
+    try {
+      const users = await getAllUsers()
+      const found = users.find((u) => u.username.toLowerCase() === signinUsername.trim().toLowerCase())
+      if (!found) {
+        setSigninError("Username not found. Check the spelling or register a new account.")
+        return
+      }
+      cacheUser(found)
+      router.push("/dashboard")
+    } catch {
+      setSigninError("Something went wrong. Please try again.")
+    } finally {
+      setSigninLoading(false)
+    }
+  }
+
+  async function handleRegister(e: React.FormEvent) {
+    e.preventDefault()
+    setRegisterLoading(true)
+    setRegisterError(null)
     try {
       const user = await registerUser({ name, username, pod })
       cacheUser(user)
       router.push("/dashboard")
     } catch (err) {
-      setError(err instanceof Error ? err.message : "Registration failed")
-      setIsLoading(false)
+      setRegisterError(err instanceof Error ? err.message : "Registration failed")
+      setRegisterLoading(false)
     }
   }
+
+  const registerDisabled = !name || !username || !pod || registerLoading
+  const signinDisabled = !signinUsername.trim() || signinLoading
 
   return (
     <div className="min-h-screen bg-background flex flex-col items-center justify-center p-4">
@@ -48,78 +83,148 @@ export default function RegistrationPage() {
 
         {/* Card */}
         <div className="rounded-xl border border-border bg-card shadow-sm">
-          <div className="text-center px-6 pt-6 pb-2">
-            <h2 className="text-xl font-semibold">Welcome to RetroBoard</h2>
-            <p className="text-sm text-muted-foreground mt-1">Set up your identity to get started.</p>
+
+          {/* Mode tabs */}
+          <div className="flex border-b border-border">
+            <button
+              type="button"
+              onClick={() => switchMode("signin")}
+              className={`flex-1 py-3 text-sm font-medium transition-colors ${
+                mode === "signin"
+                  ? "text-foreground border-b-2 border-primary -mb-px"
+                  : "text-muted-foreground hover:text-foreground"
+              }`}
+            >
+              Sign In
+            </button>
+            <button
+              type="button"
+              onClick={() => switchMode("register")}
+              className={`flex-1 py-3 text-sm font-medium transition-colors ${
+                mode === "register"
+                  ? "text-foreground border-b-2 border-primary -mb-px"
+                  : "text-muted-foreground hover:text-foreground"
+              }`}
+            >
+              Register
+            </button>
           </div>
 
-          <form onSubmit={handleSubmit} className="px-6 pb-6 pt-4 space-y-4">
-            {/* Name */}
-            <div className="space-y-1.5">
-              <label htmlFor="name" className="text-sm font-medium">
-                Your Name
-              </label>
-              <input
-                id="name"
-                type="text"
-                placeholder="e.g. Jane Doe"
-                value={name}
-                onChange={(e) => { setName(e.target.value); setError(null) }}
-                className={`w-full rounded-md border px-3 py-2 text-sm bg-secondary/50 outline-none focus:ring-2 focus:ring-ring transition ${
-                  error ? "border-destructive focus:ring-destructive" : "border-border"
-                }`}
-              />
-              {error && (
-                <p className="text-[13px] font-medium text-destructive animate-in fade-in">{error}</p>
-              )}
-            </div>
+          {/* Sign In form */}
+          {mode === "signin" && (
+            <form onSubmit={handleSignIn} className="px-6 pb-6 pt-5 space-y-4">
+              <div className="space-y-1.5">
+                <p className="text-sm text-muted-foreground">
+                  Enter your username to pick up where you left off.
+                </p>
+              </div>
+              <div className="space-y-1.5">
+                <label htmlFor="signin-username" className="text-sm font-medium">
+                  Username
+                </label>
+                <input
+                  id="signin-username"
+                  type="text"
+                  placeholder="e.g. jdoe"
+                  value={signinUsername}
+                  onChange={(e) => { setSigninUsername(e.target.value); setSigninError(null) }}
+                  className={`w-full rounded-md border px-3 py-2 text-sm bg-secondary/50 outline-none focus:ring-2 focus:ring-ring transition ${
+                    signinError ? "border-destructive focus:ring-destructive" : "border-border"
+                  }`}
+                />
+                {signinError && (
+                  <p className="text-[13px] font-medium text-destructive animate-in fade-in">{signinError}</p>
+                )}
+              </div>
+              <div className="pt-1 space-y-3">
+                <button
+                  type="submit"
+                  disabled={signinDisabled}
+                  className="w-full h-11 rounded-md bg-primary text-primary-foreground text-base font-bold transition hover:opacity-90 disabled:opacity-50 disabled:cursor-not-allowed"
+                >
+                  {signinLoading ? "Signing in..." : "Sign In"}
+                </button>
+              </div>
+            </form>
+          )}
 
-            {/* Username */}
-            <div className="space-y-1.5">
-              <label htmlFor="username" className="text-sm font-medium">
-                Username
-              </label>
-              <input
-                id="username"
-                type="text"
-                placeholder="e.g. jdoe"
-                value={username}
-                onChange={(e) => setUsername(e.target.value)}
-                className="w-full rounded-md border border-border px-3 py-2 text-sm bg-secondary/50 outline-none focus:ring-2 focus:ring-ring transition"
-              />
-            </div>
+          {/* Register form */}
+          {mode === "register" && (
+            <form onSubmit={handleRegister} className="px-6 pb-6 pt-5 space-y-4">
+              <div className="space-y-1.5">
+                <p className="text-sm text-muted-foreground">
+                  New to RetroBoard? Set up your identity to get started.
+                </p>
+              </div>
 
-            {/* Pod */}
-            <div className="space-y-1.5">
-              <label htmlFor="pod" className="text-sm font-medium">
-                Pod
-              </label>
-              <select
-                id="pod"
-                value={pod}
-                onChange={(e) => setPod(e.target.value)}
-                className="w-full rounded-md border border-border px-3 py-2 text-sm bg-secondary/50 outline-none focus:ring-2 focus:ring-ring transition"
-              >
-                <option value="" disabled>Select a pod</option>
-                <option value="pod1">Pod 1</option>
-                <option value="pod2">Pod 2</option>
-                <option value="pod3">Pod 3</option>
-              </select>
-            </div>
+              {/* Name */}
+              <div className="space-y-1.5">
+                <label htmlFor="name" className="text-sm font-medium">
+                  Your Name
+                </label>
+                <input
+                  id="name"
+                  type="text"
+                  placeholder="e.g. Jane Doe"
+                  value={name}
+                  onChange={(e) => { setName(e.target.value); setRegisterError(null) }}
+                  className={`w-full rounded-md border px-3 py-2 text-sm bg-secondary/50 outline-none focus:ring-2 focus:ring-ring transition ${
+                    registerError ? "border-destructive focus:ring-destructive" : "border-border"
+                  }`}
+                />
+                {registerError && (
+                  <p className="text-[13px] font-medium text-destructive animate-in fade-in">{registerError}</p>
+                )}
+              </div>
 
-            <div className="pt-2 space-y-3">
-              <button
-                type="submit"
-                disabled={isDisabled}
-                className="w-full h-11 rounded-md bg-primary text-primary-foreground text-base font-bold transition hover:opacity-90 disabled:opacity-50 disabled:cursor-not-allowed"
-              >
-                {isLoading ? "Joining..." : "Join RetroBoard"}
-              </button>
-              <p className="text-center text-xs text-muted-foreground">
-                Your name and pod are saved to the shared team database. No account required.
-              </p>
-            </div>
-          </form>
+              {/* Username */}
+              <div className="space-y-1.5">
+                <label htmlFor="username" className="text-sm font-medium">
+                  Username
+                </label>
+                <input
+                  id="username"
+                  type="text"
+                  placeholder="e.g. jdoe"
+                  value={username}
+                  onChange={(e) => setUsername(e.target.value)}
+                  className="w-full rounded-md border border-border px-3 py-2 text-sm bg-secondary/50 outline-none focus:ring-2 focus:ring-ring transition"
+                />
+              </div>
+
+              {/* Pod */}
+              <div className="space-y-1.5">
+                <label htmlFor="pod" className="text-sm font-medium">
+                  Pod
+                </label>
+                <select
+                  id="pod"
+                  value={pod}
+                  onChange={(e) => setPod(e.target.value)}
+                  className="w-full rounded-md border border-border px-3 py-2 text-sm bg-secondary/50 outline-none focus:ring-2 focus:ring-ring transition"
+                >
+                  <option value="" disabled>Select a pod</option>
+                  <option value="pod1">Pod 1</option>
+                  <option value="pod2">Pod 2</option>
+                  <option value="pod3">Pod 3</option>
+                </select>
+              </div>
+
+              <div className="pt-2 space-y-3">
+                <button
+                  type="submit"
+                  disabled={registerDisabled}
+                  className="w-full h-11 rounded-md bg-primary text-primary-foreground text-base font-bold transition hover:opacity-90 disabled:opacity-50 disabled:cursor-not-allowed"
+                >
+                  {registerLoading ? "Joining..." : "Join RetroBoard"}
+                </button>
+                <p className="text-center text-xs text-muted-foreground">
+                  Your name and pod are saved to the shared team database. No account required.
+                </p>
+              </div>
+            </form>
+          )}
+
         </div>
 
       </div>

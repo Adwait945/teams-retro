@@ -143,11 +143,11 @@ export default function FeedbackPage() {
             </p>
           </div>
           <button
-            onClick={() => { if (sprint?.status !== 'closed') setShowModal(true) }}
+            onClick={() => { if (sprint && sprint.status !== 'closed') setShowModal(true) }}
             data-testid="open-modal-btn"
-            disabled={sprint?.status === 'closed'}
-            aria-label={sprint?.status === 'closed' ? 'Feedback submission is closed' : undefined}
-            className={'flex items-center gap-2 bg-primary text-primary-foreground hover:bg-primary/90 font-medium px-4 py-2 rounded-md text-sm transition-colors' + (sprint?.status === 'closed' ? ' opacity-50 cursor-not-allowed' : '')}
+            disabled={!sprint || sprint.status === 'closed'}
+            aria-label={!sprint ? 'No active sprint' : sprint.status === 'closed' ? 'Feedback submission is closed' : undefined}
+            className={'flex items-center gap-2 bg-primary text-primary-foreground hover:bg-primary/90 font-medium px-4 py-2 rounded-md text-sm transition-colors' + (!sprint || sprint.status === 'closed' ? ' opacity-50 cursor-not-allowed' : '')}
           >
             <Plus className="w-4 h-4" />
             Submit Feedback
