@@ -1,9 +1,9 @@
 "use client"
 
 import { useState, useEffect } from "react"
-import { usePathname } from "next/navigation"
+import { usePathname, useRouter } from "next/navigation"
 import Link from "next/link"
-import { Hexagon, Settings, LayoutDashboard, MessageSquare, CheckSquare } from "lucide-react"
+import { Hexagon, Settings, LayoutDashboard, MessageSquare, CheckSquare, LogOut } from "lucide-react"
 import { cn } from "@/lib/utils"
 import type { User } from "@/types"
 
@@ -16,11 +16,12 @@ const NAV_ITEMS = [
   { href: "/sprint-setup",  label: "Sprint Setup",    icon: Settings },
   { href: "/dashboard",     label: "Dashboard",       icon: LayoutDashboard },
   { href: "/feedback",      label: "Feedback Board",  icon: MessageSquare },
-  { href: "/action-items",  label: "Action Items",    icon: CheckSquare },
+  { href: "/actions",       label: "Action Items",    icon: CheckSquare },
 ]
 
 export default function Shell({ children, sprintName }: ShellProps) {
   const pathname = usePathname()
+  const router = useRouter()
   const [currentUser, setCurrentUser] = useState<User | null>(null)
 
   useEffect(() => {
@@ -72,9 +73,9 @@ export default function Shell({ children, sprintName }: ShellProps) {
           })}
         </nav>
 
-        {/* User identity card */}
+        {/* User identity card + Logout */}
         {currentUser && (
-          <div className="p-4 mt-auto border-t border-border">
+          <div className="p-4 mt-auto border-t border-border space-y-2">
             <div className="flex items-center gap-3 p-3 rounded-lg bg-secondary/30 border border-border/50">
               <div className="w-8 h-8 rounded-full bg-slate-700 flex items-center justify-center text-sm font-medium">
                 {currentUser.name.split(" ").map((n) => n[0]).join("").toUpperCase().slice(0, 2)}
@@ -84,6 +85,16 @@ export default function Shell({ children, sprintName }: ShellProps) {
                 <p className="text-xs text-muted-foreground">{currentUser.pod}</p>
               </div>
             </div>
+            <button
+              onClick={() => {
+                sessionStorage.removeItem("retroboard_user")
+                router.push("/")
+              }}
+              className="w-full flex items-center gap-2 px-3 py-2 rounded-md text-xs font-medium text-muted-foreground hover:text-foreground hover:bg-secondary/50 transition-colors"
+            >
+              <LogOut className="w-3.5 h-3.5" />
+              Log out
+            </button>
           </div>
         )}
       </aside>
