@@ -13,6 +13,7 @@ import {
   getActionsByStatus,
   createAction,
   advanceStatus,
+  regressStatus,
   verifyImpact,
   getOpenCount,
   getCompletedCount,
@@ -88,6 +89,15 @@ export default function ActionsPage() {
   async function handleAdvance(itemId: string) {
     try {
       await advanceStatus(itemId)
+      if (sprint) await refetch(sprint._id)
+    } catch {
+      // silent no-op
+    }
+  }
+
+  async function handleRegress(itemId: string) {
+    try {
+      await regressStatus(itemId)
       if (sprint) await refetch(sprint._id)
     } catch {
       // silent no-op
@@ -216,6 +226,7 @@ export default function ActionsPage() {
                 item={item}
                 ownerName={usersMap[item.ownerId] ?? 'Unknown'}
                 onAdvance={handleAdvance}
+                onRegress={handleRegress}
                 onVerify={handleVerify}
               />
             ))}

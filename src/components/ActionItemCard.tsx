@@ -6,6 +6,7 @@ interface ActionItemCardProps {
   item: ActionItem
   ownerName: string
   onAdvance: (itemId: string) => void
+  onRegress: (itemId: string) => void
   onVerify: (item: ActionItem) => void
 }
 
@@ -23,7 +24,7 @@ const STATUS_COLOR: Record<ActionItem['status'], string> = {
   'verified': 'bg-purple-500/20 text-purple-400',
 }
 
-export default function ActionItemCard({ item, ownerName, onAdvance, onVerify }: ActionItemCardProps) {
+export default function ActionItemCard({ item, ownerName, onAdvance, onRegress, onVerify }: ActionItemCardProps) {
   const today = new Date().toISOString().slice(0, 10)
   const dueDateStr = item.dueDate ? item.dueDate.slice(0, 10) : ''
   const dueDateLabel = dueDateStr === today ? 'Due Today' : dueDateStr ? 'Due This Sprint' : ''
@@ -83,6 +84,15 @@ export default function ActionItemCard({ item, ownerName, onAdvance, onVerify }:
         </div>
 
         <div className="flex items-center gap-2">
+          {(item.status === 'in-progress' || item.status === 'completed') && (
+            <button
+              onClick={() => onRegress(item._id)}
+              data-testid="regress-btn"
+              className="text-xs font-medium px-2.5 py-1 rounded bg-slate-500/20 text-slate-400 hover:bg-slate-500/30 transition-colors"
+            >
+              Move Back
+            </button>
+          )}
           {(item.status === 'open' || item.status === 'in-progress') && (
             <button
               onClick={() => onAdvance(item._id)}

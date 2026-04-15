@@ -65,6 +65,12 @@ export async function advanceStatus(itemId: string): Promise<ActionItem> {
   return res.json()
 }
 
+export async function regressStatus(itemId: string): Promise<ActionItem> {
+  const res = await fetch(`/api/actions/${itemId}/regress`, { method: 'PATCH' })
+  if (!res.ok) throw new Error('Failed to regress action item status')
+  return res.json()
+}
+
 export async function verifyImpact(itemId: string, impactNote: string): Promise<ActionItem> {
   if (!impactNote.trim()) throw new Error('impactNote is required')
   const res = await fetch(`/api/actions/${itemId}/verify`, {
