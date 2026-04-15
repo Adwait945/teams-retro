@@ -21,14 +21,17 @@ export async function PATCH(req: NextRequest, { params }: { params: { id: string
     }
 
     if (item.upvotedBy.includes(userId)) {
-      return NextResponse.json({ error: 'Already upvoted' }, { status: 409 })
+      item.upvotedBy = item.upvotedBy.filter((id: string) => id !== userId)
+      item.upvotes = Math.max(0, item.upvotes - 1)
+      await item.save()
+      return NextResponse.json({ upvotes: item.upvotes, toggled: false }, { status: 200 })
     }
 
     item.upvotedBy.push(userId)
     item.upvotes += 1
     await item.save()
 
-    return NextResponse.json({ upvotes: item.upvotes }, { status: 200 })
+    return NextResponse.json({ upvotes: item.upvotes, toggled: true }, { status: 200 })
   } catch (err) {
     console.error('PATCH /api/feedback/[id]/upvote error:', err)
     return NextResponse.json({ error: 'Internal server error' }, { status: 500 })
