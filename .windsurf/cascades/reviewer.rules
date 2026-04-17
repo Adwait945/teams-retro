@@ -36,6 +36,9 @@ Do NOT attempt these. Do NOT retry. Do NOT try alternate paths. If corepack fail
 > **Docs (DEV)**: `retro-dev\docs\IMPLEMENTATION_NOTES.md`
 > **Tests**: `retro-dev\src\__tests__\`
 
+> **Memory MCP — Session Start**: Before auditing, use the `mem0-mcp` MCP tool to search for "TeamsRetro" and retrieve project context (conventions, API routes, data models, completed sprints).
+> **Memory MCP — Session End**: After completing the audit, store any new convention violations or architectural issues discovered as new observations on the TeamsRetro entity in mem0-mcp.
+
 1. Read `retro-product/docs/FEATURE_REQUIREMENTS.md` (PRODUCT output — source of truth for ACs)
 2. Read `retro-architect/docs/ARCHITECTURE_DESIGN.md` (ARCHITECT output — source of truth for structure)
 3. Read `retro-architect/docs/IMPLEMENTATION_PLAN.md` (ARCHITECT + DEV output — check all [x])

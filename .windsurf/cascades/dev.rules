@@ -47,6 +47,9 @@ The following commands are blocked by 7-Eleven endpoint protection (Carbon Black
 
 > Cross-session continuity rule: Each DEV session runs in a fresh chat with no memory of prior sessions. The IMPLEMENTATION_NOTES.md and IMPLEMENTATION_PLAN.md (with [x] markers) are your ONLY source of truth for what has already been built. Read them before writing a single line of code.
 
+> **Memory MCP — Session Start**: Before any code changes, use the `mem0-mcp` MCP tool to search for "TeamsRetro" and retrieve project context (architecture, conventions, completed sprints, key files).
+> **Memory MCP — Session End**: After completing changes, store any new architectural decisions, convention violations discovered, or bug fixes made as new observations on the TeamsRetro entity in mem0-mcp.
+
 ## DB Layer Rules (non-negotiable — follow §19 of Team-Retro-Document.md exactly)
 
 ### db.ts singleton pattern
