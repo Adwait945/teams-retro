@@ -1896,3 +1896,71 @@ If you ever want to keep them private, add `.windsurf/` to `.gitignore`. The wor
 The `.windsurf/cascades/` rules load automatically because all worktrees share the same `.windsurf/` folder via the Git worktree link.
 
 > **Multi-root tip**: To see all worktrees simultaneously without switching workspaces, use **File → Add Folder to Workspace** and add each worktree folder. Each Cascade session you open will let you pick the active folder.
+
+---
+
+### Q20: Why are we not using Mem0 OpenMemory MCP for cross-session memory?
+
+**Short answer: Windsurf's team/org plan blocks all custom MCP servers. We use Cascade's built-in native memory instead.**
+
+#### What was attempted
+
+The plan was to use Mem0's hosted MCP server (`https://mcp.mem0.ai/mcp`) so that Cascade could store and retrieve Teams Retro project facts (architecture, conventions, sprint history) across sessions without needing to paste a checkpoint. This was configured in `C:\Users\amul3034\.codeium\windsurf\mcp_config.json`.
+
+#### Why it failed
+
+The 7-Eleven Windsurf account is on a **managed team plan**. Codeium enforces an allowlist of approved MCP servers at the org level. Any server not on that list — including Mem0, `@modelcontextprotocol/server-memory`, and any other custom HTTP MCP server — is blocked with the message:
+
+> "This server is not allowed for your team."
+
+This is enforced server-side and cannot be bypassed from `mcp_config.json`. Carbon Black is not involved — this is a Windsurf org policy.
+
+#### What we use instead: Cascade Native Memory
+
+Windsurf's Cascade AI has a **built-in persistent memory system** that is always enabled regardless of team plan restrictions. It works automatically:
+
+- Facts stored in Cascade memory persist across all future sessions
+- Cascade retrieves relevant memories automatically at the start of each session
+- No MCP server, no Docker, no API key, no config needed
+- Stored in Codeium's cloud tied to your account
+
+**All 8 Teams Retro entities are already stored** in Cascade native memory:
+1. Core project stack & config (Next.js 14, React 18, TypeScript 5.3, Tailwind, MongoDB Atlas)
+2. Worktree structure (teams-retro/, retro-dev/, retro-architect/, etc.)
+3. Data models (User, Sprint, FeedbackItem, ActionItem schemas)
+4. API routes (all endpoints, toggle upvote behavior, advance/regress/verify)
+5. Key files reference (page routes, components, services)
+6. Agent roles & workflow (PRODUCT → ARCHITECT → TEST → DEV → PROFESSOR → REVIEWER)
+7. Conventions & hard rules (corepack yarn only, no inline styles, /action-items not /actions, etc.)
+8. Completed sprints & bug fix history
+
+#### How to use it going forward
+
+At the start of any new Cascade chat, you can verify memory is loaded by asking:
+```
+What do you know about the TeamsRetro project?
+```
+
+To add new facts after a session (e.g., a new bug fix or convention discovered):
+```
+Remember for TeamsRetro: [new fact here]
+```
+
+#### Antigravity (Google IDE) — no restrictions
+
+Antigravity is a Google product with no Codeium team restrictions. It can connect to Mem0's hosted MCP directly:
+
+```json
+{
+  "mcpServers": {
+    "mem0-mcp": {
+      "serverUrl": "https://mcp.mem0.ai/mcp",
+      "headers": {
+        "Authorization": "Bearer YOUR_MEM0_API_KEY"
+      }
+    }
+  }
+}
+```
+
+In Antigravity: **`...` (top-right) → MCP Servers → Manage MCP Servers → Edit configuration** → paste the above. Seed with the same 8-entity prompt from `teams-retro/docs/MAWv5.md` Phase 6, Step 6.5.
