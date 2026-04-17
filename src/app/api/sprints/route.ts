@@ -2,13 +2,18 @@ import { NextRequest, NextResponse } from 'next/server'
 import { connectDB } from '@/lib/db'
 import SprintModel from '@/lib/models/Sprint'
 
-export async function GET() {
+export async function GET(req: NextRequest) {
   try {
     await connectDB()
+    const { searchParams } = new URL(req.url)
+    if (searchParams.get('all') === 'true') {
+      const sprints = await SprintModel.find({}).sort({ createdAt: -1 }).limit(100).lean()
+      return NextResponse.json(sprints, { status: 200 })
+    }
     const sprint = await SprintModel.findOne({ status: 'open' }).lean()
     return NextResponse.json(sprint ?? [], { status: 200 })
   } catch (err) {
-    console.error('[GET /api/sprints]', err)
+    void err
     return NextResponse.json({ error: 'Database connection failed' }, { status: 500 })
   }
 }

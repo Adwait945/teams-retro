@@ -16,6 +16,7 @@ import type { CreateActionPayload } from '@/services/actionService'
 export default function FeedbackPage() {
   const router = useRouter()
 
+  const [allSprints, setAllSprints] = useState<Sprint[]>([])
   const [sprint, setSprint] = useState<Sprint | null>(null)
   const [slowedDown, setSlowedDown] = useState<FeedbackItem[]>([])
   const [shouldTry, setShouldTry] = useState<FeedbackItem[]>([])
@@ -47,16 +48,16 @@ export default function FeedbackPage() {
 
     async function load() {
       try {
-        const res = await fetch('/api/sprints')
-        const data = await res.json()
-        const activeSprint = Array.isArray(data)
-          ? data.find((s: Sprint) => s.status === 'open') ?? null
-          : data?.status === 'open'
-          ? data
-          : null
+        const [sprintRes, usersRes] = await Promise.all([
+          fetch('/api/sprints?all=true'),
+          fetch('/api/users'),
+        ])
+        const sprintData: Sprint[] = await sprintRes.json()
+        const sprints = Array.isArray(sprintData) ? sprintData : []
+        setAllSprints(sprints)
+        const activeSprint = sprints.find((s) => s.status === 'open') ?? sprints[0] ?? null
         setSprint(activeSprint)
 
-        const usersRes = await fetch('/api/users')
         if (usersRes.ok) {
           const usersData: unknown = await usersRes.json()
           if (Array.isArray(usersData)) {
@@ -76,6 +77,15 @@ export default function FeedbackPage() {
 
     load()
   }, [router, refetch])
+
+  async function handleSprintChange(sprintId: string) {
+    const selected = allSprints.find((s) => s._id === sprintId) ?? null
+    setSprint(selected)
+    setSlowedDown([])
+    setShouldTry([])
+    setWentWell([])
+    if (selected) await refetch(selected._id)
+  }
 
   const currentUser = getCurrentUser()
 
@@ -141,6 +151,26 @@ export default function FeedbackPage() {
             <p className="text-sm text-muted-foreground mt-0.5">
               Review, vote, and convert feedback to action.
             </p>
+            {allSprints.length > 1 && (
+              <div className="flex items-center gap-2 mt-2">
+                <label htmlFor="sprint-select" className="text-xs font-medium text-muted-foreground">
+                  Sprint:
+                </label>
+                <select
+                  id="sprint-select"
+                  data-testid="sprint-selector"
+                  value={sprint?._id ?? ''}
+                  onChange={(e) => handleSprintChange(e.target.value)}
+                  className="text-sm bg-secondary border border-border rounded-md px-3 py-1.5 text-slate-200 focus:outline-none focus:ring-1 focus:ring-primary"
+                >
+                  {allSprints.map((s) => (
+                    <option key={s._id} value={s._id}>
+                      {s.name}{s.status === 'open' ? ' (Active)' : ''}
+                    </option>
+                  ))}
+                </select>
+              </div>
+            )}
           </div>
           <button
             onClick={() => { if (sprint && sprint.status !== 'closed') setShowModal(true) }}
