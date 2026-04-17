@@ -16,7 +16,7 @@ const NAV_ITEMS = [
   { href: "/sprint-setup",  label: "Sprint Setup",    icon: Settings },
   { href: "/dashboard",     label: "Dashboard",       icon: LayoutDashboard },
   { href: "/feedback",      label: "Feedback Board",  icon: MessageSquare },
-  { href: "/actions",       label: "Action Items",    icon: CheckSquare },
+  { href: "/action-items",  label: "Action Items",    icon: CheckSquare },
 ]
 
 export default function Shell({ children, sprintName }: ShellProps) {
