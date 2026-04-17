@@ -13,11 +13,13 @@ const BORDER_CLASS: Record<FeedbackCategory, string> = {
 interface FeedbackCardProps {
   item: FeedbackItem
   authorName: string
+  currentUserId: string
   onUpvote: () => void
   onConvert?: (item: FeedbackItem) => void
 }
 
-export default function FeedbackCard({ item, authorName, onUpvote, onConvert }: FeedbackCardProps) {
+export default function FeedbackCard({ item, authorName, currentUserId, onUpvote, onConvert }: FeedbackCardProps) {
+  const hasUpvoted = item.upvotedBy?.includes(currentUserId)
   const borderClass = BORDER_CLASS[item.category]
   const displayName = getAuthorDisplay(item, authorName)
   const isAnon = item.isAnonymous
@@ -60,12 +62,16 @@ export default function FeedbackCard({ item, authorName, onUpvote, onConvert }: 
             </button>
           )}
           <button
-            className="flex items-center gap-1.5 px-2 py-1 rounded bg-secondary/50 hover:bg-secondary text-xs font-medium transition-colors"
+            className={`flex items-center gap-1.5 px-2 py-1 rounded text-xs font-medium transition-colors ${
+              hasUpvoted
+                ? 'bg-blue-500/20 text-blue-400 hover:bg-blue-500/30'
+                : 'bg-secondary/50 hover:bg-secondary text-muted-foreground'
+            }`}
             onClick={onUpvote}
-            aria-label="Upvote"
+            aria-label={hasUpvoted ? 'Remove upvote' : 'Upvote'}
             data-testid="upvote-btn"
           >
-            <ThumbsUp className="w-3 h-3 text-muted-foreground" />
+            <ThumbsUp className={`w-3 h-3 ${hasUpvoted ? 'text-blue-400' : 'text-muted-foreground'}`} />
             {item.upvotes}
           </button>
         </div>
