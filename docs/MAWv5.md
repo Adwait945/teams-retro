@@ -1901,55 +1901,62 @@ The `.windsurf/cascades/` rules load automatically because all worktrees share t
 
 ## Phase 6: Persistent Memory MCP (Cross-Session Context)
 
+> ⚠️ **Windsurf team plan restriction**: Custom MCP servers (including Mem0) are blocked by the 7-Eleven Windsurf org plan. **We use Cascade's built-in native memory instead.** Antigravity (Google IDE) has no such restriction and can use Mem0 directly — see Step 6.4.
+
 ### WHY THIS EXISTS
 
 Every Cascade session starts fresh — it has no memory of prior sessions unless you paste a checkpoint or summary. For a multi-sprint project like Teams Retro, re-establishing context manually (architecture decisions, worktree layout, conventions, bug history) costs 10,000–30,000 tokens per session and introduces risk of contradiction.
 
-**MCP Memory servers** solve this by storing facts externally in a queryable knowledge graph. Instead of pasting history, you ask Cascade: *"Recall everything about TeamsRetro"* and it retrieves only what's relevant — typically 200–500 tokens instead of 30,000.
+**Cascade's native memory** solves this by storing facts in Codeium's cloud, tied to your account. Cascade retrieves relevant memories automatically at the start of each session — no MCP server, no config, no token waste.
 
-### Token Impact: Does Memory MCP add token overhead?
+### Token Impact
 
-Yes — but the net effect is a significant reduction for real multi-session workflows:
+- **Without memory**: 10,000–30,000 tokens re-establishing context per session
+- **With Cascade memory**: ~200–500 tokens auto-retrieved per session
+- **Net result**: Token-positive after the first 2–3 sessions
 
-- **Overhead added**: MCP tool schemas inject ~2,000–8,000 tokens per conversation (fixed one-time cost)
-- **Savings realized**: Replaces 10,000–30,000 tokens of manual context pasting per session
-- **Net result**: Token-positive after the first 2–3 sessions; increasingly beneficial as the project grows
-
-### Which tool to use: Do you need both `@modelcontextprotocol/server-memory` AND Mem0?
-
-**No — use only Mem0 OpenMemory MCP.** Here's why:
-
-| Tool | Storage | Cross-IDE | Cross-Device | Verdict |
-|---|---|---|---|---|
-| `@modelcontextprotocol/server-memory` | Local JSON file | ❌ Windsurf only | ❌ No | Skip — too limited |
-| **Mem0 OpenMemory MCP** | Local HTTP server (SQLite) | ✅ Any MCP client on machine | ✅ Cloud mode available | **Use this** |
-
-Mem0 runs as an HTTP server on your machine. Any MCP-compatible IDE (Windsurf, Cursor, Antigravity) connects to `http://localhost:8888`. For cross-device use (e.g. a personal Mac), Mem0 also offers a cloud-hosted option at `app.mem0.ai`.
-
-### What to store in Memory MCP vs. other tools
+### What to store where
 
 | Content type | Right tool | Why |
 |---|---|---|
-| Architecture decisions, sprint history, known bugs | **MCP Memory** | Persistent facts, retrieved on demand |
-| REVIEWER 18-point checklist | **`.windsurf/cascades/reviewer.rules`** | Always needed when REVIEWER runs — never retrieved, always injected |
+| Architecture decisions, sprint history, known bugs | **Cascade native memory** | Persistent facts, auto-retrieved each session |
+| REVIEWER 17-point checklist | **`.windsurf/cascades/reviewer.rules`** | Always needed when REVIEWER runs — always injected |
 | "Never use npm, use corepack yarn" | **`.windsurf/rules` (global)** | Permanent convention — always active |
 | Finding specific code in the codebase | **Fast Context (code_search)** | Searches live files on disk — never store code in memory |
 | In-session continuity (chat running long) | **Windsurf Checkpoints** | Auto-generated when context window fills |
-| Cross-session project continuity | **MCP Memory** | Persists across separate conversations |
+| Cross-session project continuity | **Cascade native memory** | Persists across separate conversations |
 
-### Setup: Mem0 Cloud MCP on Windows (7-Eleven Machine)
+### Setup: Cascade Native Memory (Windsurf — already active)
 
-> ✅ **No Docker, no Python, no npx required.** Mem0 hosts the MCP server at `https://mcp.mem0.ai/mcp`. Windsurf calls it over HTTPS using your API key. Carbon Black has no impact — this is a standard outbound web request.
+No setup required. All 8 Teams Retro entities are already stored:
+1. Core project stack & config (Next.js 14, React 18, TypeScript 5.3, Tailwind, MongoDB Atlas)
+2. Worktree structure (teams-retro/, retro-dev/, retro-architect/, etc.)
+3. Data models (User, Sprint, FeedbackItem, ActionItem schemas)
+4. API routes (all endpoints, toggle upvote, advance/regress/verify)
+5. Key files reference (page routes, components, services)
+6. Agent roles & workflow (PRODUCT → ARCHITECT → TEST → DEV → PROFESSOR → REVIEWER)
+7. Conventions & hard rules (corepack yarn only, no inline styles, /action-items not /actions)
+8. Completed sprints & bug fix history
 
-#### Step 6.1 — Get your Mem0 API key
+#### Using memory in future sessions
 
-1. Go to **[app.mem0.ai](https://app.mem0.ai)** → Sign up (free tier is sufficient)
-2. Navigate to **Settings → API Keys**
-3. Copy your key — it looks like `m0-xxxxxxxxxxxxxxxxxxxx`
+At the start of any new Cascade chat:
+```
+What do you know about the TeamsRetro project?
+```
+
+To add new facts after a session:
+```
+Remember for TeamsRetro: [new fact here]
+```
 
 #### Step 6.2 — Configure Windsurf
 
-Edit `C:\Users\amul3034\.codeium\windsurf\mcp_config.json` — replace `YOUR_MEM0_API_KEY_HERE` with your actual key:
+> ℹ️ Windsurf team plan blocks custom MCP servers — `mcp_config.json` is configured but non-functional for this account. Cascade native memory is the active solution.
+
+#### Step 6.3 — Restart Windsurf
+
+No action needed — Cascade memory is always active.
 
 ```json
 {
@@ -1957,20 +1964,14 @@ Edit `C:\Users\amul3034\.codeium\windsurf\mcp_config.json` — replace `YOUR_MEM
     "mem0-mcp": {
       "serverUrl": "https://mcp.mem0.ai/mcp",
       "headers": {
-        "Authorization": "Bearer YOUR_MEM0_API_KEY_HERE"
+        "Authorization": "Bearer YOUR_MEM0_API_KEY"
       }
     }
   }
 }
 ```
 
-> This file is already configured with the correct structure. Only the API key placeholder needs replacing.
-
-#### Step 6.3 — Restart Windsurf
-
-Close and reopen Windsurf. Go to **Settings → Cascade → MCP Servers** — `mem0-mcp` should show a **green dot**.
-
-If it shows red: double-check the API key has no extra spaces and `app.mem0.ai` is reachable from your machine (not blocked by 7-Eleven firewall — if it is, see Step 6.6 for Antigravity fallback).
+> ⚠️ Windsurf team plan blocks this server. Use Cascade native memory in Windsurf. For Antigravity, this config works — see Step 6.4 below.
 
 #### Step 6.4 — Configure Antigravity
 
@@ -2131,10 +2132,9 @@ Add to TeamsRetro memory: [new observation]. For example: "The /actions route is
 
 | Done? | Item |
 |---|---|
-| ☐ | Account created at `app.mem0.ai` and API key copied |
-| ☐ | `mcp_config.json` updated — `YOUR_MEM0_API_KEY_HERE` replaced with real key |
-| ☐ | Windsurf restarted — `mem0-mcp` shows green dot in Settings → Cascade → MCP Servers |
-| ☐ | Antigravity configured with same `serverUrl` + API key |
-| ☐ | Seed prompt run in Cascade — 8 entities stored (verify at `app.mem0.ai` dashboard) |
-| ☐ | `dev.rules` and `reviewer.rules` updated with session-start memory recall instruction |
-| ☐ | Verified: new Cascade chat can recall TeamsRetro context without pasting checkpoint |
+| ✅ | Cascade native memory active — 8 TeamsRetro entities stored |
+| ✅ | `dev.rules` and `reviewer.rules` updated with Cascade memory recall instruction |
+| ☐ | Antigravity configured with Mem0 MCP (see Step 6.4) |
+| ☐ | Verified: new Cascade chat recalls TeamsRetro context without pasting checkpoint |
+
+In Antigravity: **`...` (top-right) → MCP Servers → Manage MCP Servers → Edit configuration** → paste the config from Step 6.4. Seed with the 8-entity prompt from Step 6.5.
