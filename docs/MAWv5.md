@@ -1896,3 +1896,244 @@ If you ever want to keep them private, add `.windsurf/` to `.gitignore`. The wor
 The `.windsurf/cascades/` rules load automatically because all worktrees share the same `.windsurf/` folder via the Git worktree link.
 
 > **Multi-root tip**: To see all worktrees simultaneously without switching workspaces, use **File → Add Folder to Workspace** and add each worktree folder. Each Cascade session you open will let you pick the active folder.
+
+---
+
+## Phase 6: Persistent Memory MCP (Cross-Session Context)
+
+### WHY THIS EXISTS
+
+Every Cascade session starts fresh — it has no memory of prior sessions unless you paste a checkpoint or summary. For a multi-sprint project like Teams Retro, re-establishing context manually (architecture decisions, worktree layout, conventions, bug history) costs 10,000–30,000 tokens per session and introduces risk of contradiction.
+
+**MCP Memory servers** solve this by storing facts externally in a queryable knowledge graph. Instead of pasting history, you ask Cascade: *"Recall everything about TeamsRetro"* and it retrieves only what's relevant — typically 200–500 tokens instead of 30,000.
+
+### Token Impact: Does Memory MCP add token overhead?
+
+Yes — but the net effect is a significant reduction for real multi-session workflows:
+
+- **Overhead added**: MCP tool schemas inject ~2,000–8,000 tokens per conversation (fixed one-time cost)
+- **Savings realized**: Replaces 10,000–30,000 tokens of manual context pasting per session
+- **Net result**: Token-positive after the first 2–3 sessions; increasingly beneficial as the project grows
+
+### Which tool to use: Do you need both `@modelcontextprotocol/server-memory` AND Mem0?
+
+**No — use only Mem0 OpenMemory MCP.** Here's why:
+
+| Tool | Storage | Cross-IDE | Cross-Device | Verdict |
+|---|---|---|---|---|
+| `@modelcontextprotocol/server-memory` | Local JSON file | ❌ Windsurf only | ❌ No | Skip — too limited |
+| **Mem0 OpenMemory MCP** | Local HTTP server (SQLite) | ✅ Any MCP client on machine | ✅ Cloud mode available | **Use this** |
+
+Mem0 runs as an HTTP server on your machine. Any MCP-compatible IDE (Windsurf, Cursor, Antigravity) connects to `http://localhost:8888`. For cross-device use (e.g. a personal Mac), Mem0 also offers a cloud-hosted option at `app.mem0.ai`.
+
+### What to store in Memory MCP vs. other tools
+
+| Content type | Right tool | Why |
+|---|---|---|
+| Architecture decisions, sprint history, known bugs | **MCP Memory** | Persistent facts, retrieved on demand |
+| REVIEWER 18-point checklist | **`.windsurf/cascades/reviewer.rules`** | Always needed when REVIEWER runs — never retrieved, always injected |
+| "Never use npm, use corepack yarn" | **`.windsurf/rules` (global)** | Permanent convention — always active |
+| Finding specific code in the codebase | **Fast Context (code_search)** | Searches live files on disk — never store code in memory |
+| In-session continuity (chat running long) | **Windsurf Checkpoints** | Auto-generated when context window fills |
+| Cross-session project continuity | **MCP Memory** | Persists across separate conversations |
+
+### Setup: Mem0 OpenMemory MCP on Windows (7-Eleven Machine)
+
+> ⚠️ **Carbon Black constraint**: `npx` is blocked on this machine. Use Docker to run Mem0's server instead of `npx`. Docker Desktop is available from the Software Center.
+
+#### Step 6.1 — Install Docker Desktop
+
+1. Open **Software Center** → search "Docker Desktop" → Install
+2. After install, open Docker Desktop and let it initialize
+3. Verify: open PowerShell and run `docker --version`
+
+#### Step 6.2 — Run the Mem0 OpenMemory MCP server
+
+```powershell
+docker run -d --name openmemory-mcp -p 8888:8888 mem0ai/openmemory-mcp
+```
+
+This pulls the image and starts a local server at `http://localhost:8888`. It persists data in a SQLite database inside the container.
+
+To restart after a machine reboot:
+```powershell
+docker start openmemory-mcp
+```
+
+#### Step 6.3 — Configure Windsurf
+
+Edit `C:\Users\amul3034\.codeium\windsurf\mcp_config.json`:
+
+```json
+{
+  "mcpServers": {
+    "memory": {
+      "command": "docker",
+      "args": ["exec", "-i", "openmemory-mcp", "python", "-m", "openmemory.mcp"]
+    }
+  }
+}
+```
+
+Alternatively, if Mem0 exposes an HTTP/SSE endpoint directly:
+
+```json
+{
+  "mcpServers": {
+    "memory": {
+      "serverUrl": "http://localhost:8888/mcp",
+      "transport": "http"
+    }
+  }
+}
+```
+
+Restart Windsurf. Verify the `memory` server shows a green dot in **Settings → Cascade → MCP Servers**.
+
+#### Step 6.4 — Seed Teams Retro project context
+
+Open a new Cascade chat and paste this prompt once to build the initial memory graph:
+
+```
+Use the memory MCP tools to store the following project knowledge for Teams Retro.
+
+ENTITIES:
+
+1. Name: "TeamsRetro", Type: project
+   Observations:
+   - Next.js 14, React 18, TypeScript 5.3, Tailwind CSS 3.4, MongoDB Atlas, Mongoose
+   - Deployed on Replit from main branch; development in Windsurf on Windows (7-Eleven corporate machine)
+   - Package manager: corepack yarn ONLY — never use npm or npx (Carbon Black blocks them)
+   - App Router at src/app/ — NOT pages router
+   - API routes at src/app/api/*/route.ts — server-side only
+   - DB connection singleton at src/lib/db.ts
+   - Mongoose models at src/lib/models/
+   - sessionStorage key: retroboard_user
+   - Client state via sessionStorage using userService.ts — no React Context used
+
+2. Name: "WorktreeStructure", Type: architecture
+   Observations:
+   - teams-retro/ = main branch (docs, rules, production)
+   - retro-dev/ = dev-branch (ALL Next.js source code written here)
+   - retro-architect/ = architect-branch
+   - retro-product/ = product-branch
+   - retro-test/ = test-branch
+   - retro-reviewer/ = reviewer-branch
+   - Single .git repo with multiple worktrees — NOT separate repos
+   - To merge dev to main: run git merge from teams-retro/ folder, NOT retro-dev/
+   - Merge command: git -C "teams-retro" merge dev-branch --no-ff -m "message"
+   - Push to Replit: git push origin main from teams-retro/
+
+3. Name: "DataModels", Type: schema
+   Observations:
+   - User: _id, name, username, pod, isAdmin, totalPoints, createdAt
+   - Sprint: _id, name, goal, startDate, endDate, status (open/closed), teamMemberIds[]
+   - FeedbackItem: _id, sprintId, authorId, category (slowed-us-down/should-try/went-well), content, suggestion, isAnonymous, upvotes, upvotedBy[], createdAt
+   - ActionItem: _id, sprintId, ownerId, sourceFeedbackId, sourceQuote, title, description, status (open/in-progress/completed/verified), impactNote, dueDate, createdAt
+
+4. Name: "APIRoutes", Type: architecture
+   Observations:
+   - GET/POST /api/users — user lookup and registration
+   - GET /api/sprints — returns single active open sprint
+   - PATCH /api/feedback/[id]/upvote — TOGGLES upvote (adds if not present, removes if already upvoted)
+   - GET/POST /api/actions — requires sprintId query param
+   - PATCH /api/actions/[id]/advance — open→in-progress→completed (409 if already completed)
+   - PATCH /api/actions/[id]/regress — completed→in-progress→open (cannot regress verified)
+   - PATCH /api/actions/[id]/verify — sets status=verified + impactNote
+
+5. Name: "KeyFiles", Type: reference
+   Observations:
+   - retro-dev/src/app/page.tsx — landing page with Sign In / Register tabs
+   - retro-dev/src/app/dashboard/page.tsx — dashboard, fetches sprint then actions
+   - retro-dev/src/app/feedback/page.tsx — feedback board
+   - retro-dev/src/app/action-items/page.tsx — REAL Action Items page (full implementation here)
+   - retro-dev/src/app/actions/page.tsx — duplicate of action-items page (local only, not on Replit)
+   - retro-dev/src/components/layout/Shell.tsx — sidebar nav with logout button, nav href is /action-items
+   - retro-dev/src/components/FeedbackCard.tsx — shows blue upvote button when user has already upvoted
+   - retro-dev/src/services/actionService.ts — includes regressStatus()
+   - retro-dev/src/services/userService.ts — getCurrentUser, cacheUser, getAllUsers
+   - teams-retro/docs/CODE_EXPLAINER.md — PROFESSOR plain English explanations
+   - teams-retro/docs/Team-Retro-Document.md — master project reference document
+
+6. Name: "AgentRoles", Type: workflow
+   Observations:
+   - PRODUCT: defines What and Why, writes user stories and acceptance criteria, outputs FEATURE_REQUIREMENTS.md
+   - ARCHITECT: defines How (high level), no implementation code, outputs ARCHITECTURE_DESIGN.md + IMPLEMENTATION_PLAN.md
+   - DEV: surgical edits, always cites file paths and line numbers, no freelancing, outputs src/ code
+   - TEST: TDD mindset, writes failing tests before DEV runs, never deletes or weakens tests
+   - REVIEWER: audits against acceptance criteria, 18-point checklist, Pass/Fail output
+   - PROFESSOR: reads code, explains in plain English, appends to CODE_EXPLAINER.md
+
+7. Name: "Conventions", Type: rules
+   Observations:
+   - NEVER use npm or npx — only corepack yarn on the 7-Eleven Windows machine
+   - NEVER modify test files in src/__tests__/ — fix code to match tests
+   - NEVER add <style> tags or inline styles — Tailwind utility classes only
+   - NEVER rename fields from src/types/index.ts
+   - ALWAYS use absolute paths in agent prompts (not relative paths)
+   - ALWAYS cite file path and line numbers before making a code change
+   - Logout clears sessionStorage key "retroboard_user" and redirects to "/"
+   - Action Items nav link: href="/action-items" (not /actions — /actions is local only)
+
+8. Name: "CompletedSprints", Type: progress
+   Observations:
+   - Sprint 1: Foundation, MongoDB connection, types, services, pages
+   - Sprint 2: Feedback Board, upvote, Reframe Rule
+   - Sprint 3: Action Items, advance/verify status workflow
+   - Sprint 4: Sprint Setup page, admin controls, isAdmin gate
+   - Sprint 5: Polish, error handling, empty states, data-testid attributes, smoke test prep
+   - Bug Fix Sprint: sign-in flow fix, dashboard crash fix, feedback button guard, action regress feature, logout button, upvote toggle (removes on second click), nav href fix (/action-items), Replit cache rebuild issue
+
+RELATIONS:
+- TeamsRetro → has_architecture → WorktreeStructure
+- TeamsRetro → uses_schema → DataModels
+- TeamsRetro → exposes → APIRoutes
+- TeamsRetro → governed_by → Conventions
+- TeamsRetro → built_with → AgentRoles
+- TeamsRetro → contains → KeyFiles
+- TeamsRetro → completed → CompletedSprints
+```
+
+#### Step 6.5 — Add memory recall to agent rules
+
+Add one line to `retro-dev/.windsurf/cascades/dev.rules` and `reviewer.rules`:
+
+```
+* Session Start: Before any code changes, call memory MCP search_nodes for "TeamsRetro" to retrieve project context.
+* Session End: After completing changes, store any new architectural decisions or convention violations discovered as observations on the TeamsRetro entity.
+```
+
+#### Step 6.6 — Using memory in future sessions
+
+At the start of any new Cascade chat, instead of pasting a checkpoint:
+
+```
+Use memory tools to recall everything about TeamsRetro. Then [describe your task].
+```
+
+To add new facts discovered mid-session:
+
+```
+Add to TeamsRetro memory: [new observation]. For example: "The /actions route is local-only and does not exist on Replit — always use /action-items."
+```
+
+### Memory MCP: What it replaces vs. what it doesn't
+
+| Replaced | Not Replaced |
+|---|---|
+| Pasting checkpoint summaries at session start | Fast Context (code_search) for finding live code |
+| Re-explaining architecture every new chat | `.windsurf/rules` files (always-on conventions) |
+| Re-explaining worktree merge pattern | Checkpoints (in-session continuity for long chats) |
+| Sprint history and completed features list | The actual source files on disk |
+
+### Phase 6 Checklist
+
+| Done? | Item |
+|---|---|
+| ☐ | Docker Desktop installed |
+| ☐ | Mem0 OpenMemory MCP container running (`docker ps` shows `openmemory-mcp`) |
+| ☐ | `mcp_config.json` updated with Mem0 server entry |
+| ☐ | Windsurf restarted — `memory` server shows green dot in MCP settings |
+| ☐ | Teams Retro seed prompt run — 8 entities stored |
+| ☐ | `dev.rules` and `reviewer.rules` updated with session-start memory recall instruction |
+| ☐ | Verified: new Cascade chat can recall TeamsRetro context without pasting checkpoint |
