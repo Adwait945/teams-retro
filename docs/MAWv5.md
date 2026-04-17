@@ -1937,60 +1937,61 @@ Mem0 runs as an HTTP server on your machine. Any MCP-compatible IDE (Windsurf, C
 | In-session continuity (chat running long) | **Windsurf Checkpoints** | Auto-generated when context window fills |
 | Cross-session project continuity | **MCP Memory** | Persists across separate conversations |
 
-### Setup: Mem0 OpenMemory MCP on Windows (7-Eleven Machine)
+### Setup: Mem0 Cloud MCP on Windows (7-Eleven Machine)
 
-> ⚠️ **Carbon Black constraint**: `npx` is blocked on this machine. Use Docker to run Mem0's server instead of `npx`. Docker Desktop is available from the Software Center.
+> ✅ **No Docker, no Python, no npx required.** Mem0 hosts the MCP server at `https://mcp.mem0.ai/mcp`. Windsurf calls it over HTTPS using your API key. Carbon Black has no impact — this is a standard outbound web request.
 
-#### Step 6.1 — Install Docker Desktop
+#### Step 6.1 — Get your Mem0 API key
 
-1. Open **Software Center** → search "Docker Desktop" → Install
-2. After install, open Docker Desktop and let it initialize
-3. Verify: open PowerShell and run `docker --version`
+1. Go to **[app.mem0.ai](https://app.mem0.ai)** → Sign up (free tier is sufficient)
+2. Navigate to **Settings → API Keys**
+3. Copy your key — it looks like `m0-xxxxxxxxxxxxxxxxxxxx`
 
-#### Step 6.2 — Run the Mem0 OpenMemory MCP server
+#### Step 6.2 — Configure Windsurf
 
-```powershell
-docker run -d --name openmemory-mcp -p 8888:8888 mem0ai/openmemory-mcp
-```
-
-This pulls the image and starts a local server at `http://localhost:8888`. It persists data in a SQLite database inside the container.
-
-To restart after a machine reboot:
-```powershell
-docker start openmemory-mcp
-```
-
-#### Step 6.3 — Configure Windsurf
-
-Edit `C:\Users\amul3034\.codeium\windsurf\mcp_config.json`:
+Edit `C:\Users\amul3034\.codeium\windsurf\mcp_config.json` — replace `YOUR_MEM0_API_KEY_HERE` with your actual key:
 
 ```json
 {
   "mcpServers": {
-    "memory": {
-      "command": "docker",
-      "args": ["exec", "-i", "openmemory-mcp", "python", "-m", "openmemory.mcp"]
+    "mem0-mcp": {
+      "serverUrl": "https://mcp.mem0.ai/mcp",
+      "headers": {
+        "Authorization": "Bearer YOUR_MEM0_API_KEY_HERE"
+      }
     }
   }
 }
 ```
 
-Alternatively, if Mem0 exposes an HTTP/SSE endpoint directly:
+> This file is already configured with the correct structure. Only the API key placeholder needs replacing.
+
+#### Step 6.3 — Restart Windsurf
+
+Close and reopen Windsurf. Go to **Settings → Cascade → MCP Servers** — `mem0-mcp` should show a **green dot**.
+
+If it shows red: double-check the API key has no extra spaces and `app.mem0.ai` is reachable from your machine (not blocked by 7-Eleven firewall — if it is, see Step 6.6 for Antigravity fallback).
+
+#### Step 6.4 — Configure Antigravity
+
+In Antigravity's MCP settings (or its config file — typically `antigravity.config.json` or via the Settings UI):
 
 ```json
 {
   "mcpServers": {
-    "memory": {
-      "serverUrl": "http://localhost:8888/mcp",
-      "transport": "http"
+    "mem0-mcp": {
+      "serverUrl": "https://mcp.mem0.ai/mcp",
+      "headers": {
+        "Authorization": "Bearer YOUR_MEM0_API_KEY_HERE"
+      }
     }
   }
 }
 ```
 
-Restart Windsurf. Verify the `memory` server shows a green dot in **Settings → Cascade → MCP Servers**.
+Both Windsurf and Antigravity point to the **same cloud server** with the **same API key** — so memories stored in Windsurf are instantly visible in Antigravity and vice versa. This is the cross-IDE sharing that makes Mem0 worth using.
 
-#### Step 6.4 — Seed Teams Retro project context
+#### Step 6.5 — Seed Teams Retro project context
 
 Open a new Cascade chat and paste this prompt once to build the initial memory graph:
 
@@ -2094,7 +2095,7 @@ RELATIONS:
 - TeamsRetro → completed → CompletedSprints
 ```
 
-#### Step 6.5 — Add memory recall to agent rules
+#### Step 6.6 — Add memory recall to agent rules
 
 Add one line to `retro-dev/.windsurf/cascades/dev.rules` and `reviewer.rules`:
 
@@ -2103,7 +2104,7 @@ Add one line to `retro-dev/.windsurf/cascades/dev.rules` and `reviewer.rules`:
 * Session End: After completing changes, store any new architectural decisions or convention violations discovered as observations on the TeamsRetro entity.
 ```
 
-#### Step 6.6 — Using memory in future sessions
+#### Step 6.7 — Using memory in future sessions
 
 At the start of any new Cascade chat, instead of pasting a checkpoint:
 
@@ -2130,10 +2131,10 @@ Add to TeamsRetro memory: [new observation]. For example: "The /actions route is
 
 | Done? | Item |
 |---|---|
-| ☐ | Docker Desktop installed |
-| ☐ | Mem0 OpenMemory MCP container running (`docker ps` shows `openmemory-mcp`) |
-| ☐ | `mcp_config.json` updated with Mem0 server entry |
-| ☐ | Windsurf restarted — `memory` server shows green dot in MCP settings |
-| ☐ | Teams Retro seed prompt run — 8 entities stored |
+| ☐ | Account created at `app.mem0.ai` and API key copied |
+| ☐ | `mcp_config.json` updated — `YOUR_MEM0_API_KEY_HERE` replaced with real key |
+| ☐ | Windsurf restarted — `mem0-mcp` shows green dot in Settings → Cascade → MCP Servers |
+| ☐ | Antigravity configured with same `serverUrl` + API key |
+| ☐ | Seed prompt run in Cascade — 8 entities stored (verify at `app.mem0.ai` dashboard) |
 | ☐ | `dev.rules` and `reviewer.rules` updated with session-start memory recall instruction |
 | ☐ | Verified: new Cascade chat can recall TeamsRetro context without pasting checkpoint |
