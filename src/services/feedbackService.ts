@@ -56,7 +56,7 @@ export async function addFeedback(payload: {
   return res.json()
 }
 
-export async function upvoteFeedback(itemId: string, userId: string): Promise<{ upvotes: number }> {
+export async function upvoteFeedback(itemId: string, userId: string): Promise<{ upvotes: number; upvotedBy: string[]; toggled: boolean }> {
   const res = await fetch(`/api/feedback/${itemId}/upvote`, {
     method: 'PATCH',
     headers: { 'Content-Type': 'application/json' },

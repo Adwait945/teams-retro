@@ -89,14 +89,27 @@ export default function FeedbackPage() {
 
   const currentUser = getCurrentUser()
 
+  function patchUpvote(
+    setter: React.Dispatch<React.SetStateAction<FeedbackItem[]>>,
+    itemId: string,
+    upvotes: number,
+    upvotedBy: string[]
+  ) {
+    setter((prev) =>
+      prev.map((f) => (f._id === itemId ? { ...f, upvotes, upvotedBy } : f))
+    )
+  }
+
   async function handleUpvote(itemId: string) {
     const user = getCurrentUser()
     if (!user) return
     try {
-      await upvoteFeedback(itemId, user._id)
-      if (sprint) await refetch(sprint._id)
+      const result = await upvoteFeedback(itemId, user._id)
+      patchUpvote(setSlowedDown, itemId, result.upvotes, result.upvotedBy)
+      patchUpvote(setShouldTry, itemId, result.upvotes, result.upvotedBy)
+      patchUpvote(setWentWell, itemId, result.upvotes, result.upvotedBy)
     } catch {
-      // 403 self-vote or 409 duplicate — silent no-op
+      // 403 self-vote — silent no-op
     }
   }
 

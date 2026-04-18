@@ -28,7 +28,7 @@ export async function PATCH(
     await item.save()
     return NextResponse.json(item, { status: 200 })
   } catch (err) {
-    void err
-    return NextResponse.json({ error: 'Database connection failed' }, { status: 500 })
+    console.error('[PATCH /api/actions/[id]/regress]', err)
+    return NextResponse.json({ error: 'Internal server error' }, { status: 500 })
   }
 }
