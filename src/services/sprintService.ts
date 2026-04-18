@@ -7,7 +7,8 @@ export async function getActiveSprint(): Promise<Sprint | null> {
     throw new Error(json.error ?? 'Request failed')
   }
   const data = await res.json()
-  return Array.isArray(data) ? null : (data as Sprint)
+  if (!data || Array.isArray(data)) return null
+  return data as Sprint
 }
 
 export async function createSprint(payload: {
