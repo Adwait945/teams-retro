@@ -50,12 +50,10 @@ export default function DashboardPage() {
         const sprintRes = await fetch("/api/sprints")
         const sprintData = await sprintRes.json()
 
-        let activeSprint: Sprint | null = null
-        if (Array.isArray(sprintData)) {
-          activeSprint = sprintData.find((s: Sprint) => s.status === "open") ?? null
-        } else if (sprintData && sprintData.status === "open") {
-          activeSprint = sprintData
-        }
+        const activeSprint: Sprint | null =
+          sprintData && !Array.isArray(sprintData) && sprintData.status === "open"
+            ? sprintData
+            : null
 
         const fetchedActions = activeSprint ? await getActions(activeSprint._id) : []
 
