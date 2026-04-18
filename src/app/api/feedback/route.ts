@@ -11,7 +11,8 @@ export async function GET(req: NextRequest) {
     if (sprintId) query.sprintId = sprintId
     if (category) query.category = category
     const items = await FeedbackItemModel.find(query).lean()
-    return NextResponse.json(items, { status: 200 })
+    const normalized = items.map((item) => ({ ...item, _id: String(item._id) }))
+    return NextResponse.json(normalized, { status: 200 })
   } catch (err) {
     console.error('GET /api/feedback error:', err)
     return NextResponse.json({ error: 'Internal server error' }, { status: 500 })

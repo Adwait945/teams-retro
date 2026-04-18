@@ -10,7 +10,8 @@ export async function GET(req: NextRequest) {
       return NextResponse.json({ error: "sprintId is required" }, { status: 400 })
     }
     const actions = await ActionItemModel.find({ sprintId }).lean().limit(100)
-    return NextResponse.json(actions, { status: 200 })
+    const normalized = actions.map((a) => ({ ...a, _id: String(a._id) }))
+    return NextResponse.json(normalized, { status: 200 })
   } catch (err) {
     void err
     return NextResponse.json({ error: 'Database connection failed' }, { status: 500 })

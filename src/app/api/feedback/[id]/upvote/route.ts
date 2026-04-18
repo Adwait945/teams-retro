@@ -20,18 +20,19 @@ export async function PATCH(req: NextRequest, { params }: { params: { id: string
       return NextResponse.json({ error: 'Cannot upvote own feedback' }, { status: 403 })
     }
 
-    if (item.upvotedBy.includes(userId)) {
-      item.upvotedBy = item.upvotedBy.filter((id: string) => id !== userId)
+    const userIdStr = String(userId)
+    if (item.upvotedBy.some((id: unknown) => String(id) === userIdStr)) {
+      item.upvotedBy = item.upvotedBy.filter((id: unknown) => String(id) !== userIdStr)
       item.upvotes = Math.max(0, item.upvotes - 1)
       await item.save()
-      return NextResponse.json({ upvotes: item.upvotes, toggled: false }, { status: 200 })
+      return NextResponse.json({ upvotes: item.upvotes, upvotedBy: item.upvotedBy.map(String), toggled: false }, { status: 200 })
     }
 
-    item.upvotedBy.push(userId)
+    item.upvotedBy.push(userIdStr)
     item.upvotes += 1
     await item.save()
 
-    return NextResponse.json({ upvotes: item.upvotes, toggled: true }, { status: 200 })
+    return NextResponse.json({ upvotes: item.upvotes, upvotedBy: item.upvotedBy.map(String), toggled: true }, { status: 200 })
   } catch (err) {
     console.error('PATCH /api/feedback/[id]/upvote error:', err)
     return NextResponse.json({ error: 'Internal server error' }, { status: 500 })

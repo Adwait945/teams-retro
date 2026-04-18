@@ -8,10 +8,12 @@ export async function GET(req: NextRequest) {
     const { searchParams } = new URL(req.url)
     if (searchParams.get('all') === 'true') {
       const sprints = await SprintModel.find({}).sort({ createdAt: -1 }).limit(100).lean()
-      return NextResponse.json(sprints, { status: 200 })
+      const normalized = sprints.map((s) => ({ ...s, _id: String(s._id) }))
+      return NextResponse.json(normalized, { status: 200 })
     }
-    const sprint = await SprintModel.findOne({ status: 'open' }).lean()
-    return NextResponse.json(sprint ?? [], { status: 200 })
+    const sprint = await SprintModel.findOne({ status: 'open' }).lean<{ _id: unknown } & Record<string, unknown>>()
+    if (!sprint) return NextResponse.json(null, { status: 200 })
+    return NextResponse.json({ ...sprint, _id: String(sprint._id) }, { status: 200 })
   } catch (err) {
     void err
     return NextResponse.json({ error: 'Database connection failed' }, { status: 500 })
