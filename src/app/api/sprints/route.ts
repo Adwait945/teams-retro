@@ -7,7 +7,8 @@ export async function GET(req: NextRequest) {
     await connectDB()
     const { searchParams } = new URL(req.url)
     if (searchParams.get('all') === 'true') {
-      const sprints = await SprintModel.find({}).sort({ createdAt: -1 }).limit(100).lean()
+      const sprints = await SprintModel.find({}).sort({ _id: -1 }).limit(100).lean()
+      console.log(`[GET /api/sprints?all=true] found ${sprints.length} sprint(s):`, sprints.map((s) => ({ id: String(s._id), name: (s as Record<string, unknown>).name, status: (s as Record<string, unknown>).status })))
       const normalized = sprints.map((s) => ({ ...s, _id: String(s._id) }))
       return NextResponse.json(normalized, { status: 200 })
     }
