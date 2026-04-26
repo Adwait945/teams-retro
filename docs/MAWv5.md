@@ -2138,3 +2138,119 @@ Add to TeamsRetro memory: [new observation]. For example: "The /actions route is
 | ☐ | Verified: new Cascade chat recalls TeamsRetro context without pasting checkpoint |
 
 In Antigravity: **`...` (top-right) → MCP Servers → Manage MCP Servers → Edit configuration** → paste the config from Step 6.4. Seed with the 8-entity prompt from Step 6.5.
+
+---
+
+### Q21: Can I keep both the 300-line chunk rule and the full-file rule, switching based on my model?
+
+**Yes — both rules coexist in `dev.rules`. You declare which applies at the start of each DEV session.**
+
+#### Why not two separate rule files?
+
+Splitting into `dev-200k.rules` and `dev-1m.rules` creates a maintenance problem: two files to keep in sync, and you must remember to load the right one before every session. A single `dev.rules` with model-aware sections is zero-friction — you just add a tag to your prompt.
+
+#### How to declare at session start
+
+Add one of these tags at the top of your DEV session prompt:
+
+```
+[DEV] [MODEL: 200K]   ← uses 300-line chunk rule (default if omitted)
+[DEV] [MODEL: 1M]     ← uses full-file-per-turn rule (Claude Opus, etc.)
+[DEV] [MODEL: 2M]     ← uses full-file-per-turn rule (Gemini in Antigravity)
+```
+
+#### What each mode means
+
+**[MODEL: 200K] — Chunk Rule (default)**
+- If a single file edit exceeds 300 lines, split it into multiple sequential edits
+- Each intermediate edit must leave the file in a compilable, non-broken state
+- Use this when working in Windsurf with standard Cascade models
+
+**[MODEL: 1M] or [MODEL: 2M] — Full-File Rule**
+- Write complete file implementations per turn — do NOT pre-emptively split a single file across multiple turns
+- If the model hits its per-response output limit mid-file, it continues naturally in the next turn; do not pre-split
+- Quality is enforced by the TEST suite (ATDD) — prioritize coherence over chunk size
+- Use this when running Claude Opus (1M context) or Gemini in Antigravity (2M context)
+
+#### Why the full-file rule is better at 1M+
+
+At 200K context, breaking into chunks is defensive — the model loses coherence mid-generation on large outputs. At 1M+, the model holds the entire `src/` tree simultaneously. Splitting artificially creates inconsistent intermediate states and prevents the model from writing cohesive, cross-referencing code in a single pass. ATDD catches any behavioral regressions regardless of how many lines were written.
+
+#### Where this rule lives
+
+The dual-mode rule is encoded in `teams-retro/.windsurf/cascades/dev.rules` under **"Output Length Rules — Model-Aware"**. The MAWv6.md DEV prompt also documents the `[MODEL]` tag in its session prompt template.
+
+---
+
+### Q22: Should the TEST role write UI/E2E tests? Do we need a separate UITEST role?
+
+**Decision: Extend TEST to cover both tiers. No separate role.**
+
+#### Two-tier test coverage model
+
+| Tier | Type | Tool | When |
+|------|------|------|------|
+| **Tier 1** | Component + unit tests | Jest + React Testing Library | Every sprint — run in CI |
+| **Tier 2** | UI / E2E browser tests | Playwright | Every sprint — run on live app |
+
+TEST writes both tiers in its `TEST_PLAN.md` output, clearly separated into sections. A separate UITEST role would add an extra agent handoff with no benefit — TEST already has full context of the feature requirements and architecture when it runs.
+
+#### Why not a separate UITEST role?
+
+- Adds a 6th pipeline step before DEV, increasing planning latency
+- TEST already reads `FEATURE_REQUIREMENTS.md` and `IMPLEMENTATION_PLAN.md` — it has everything needed to write E2E scenarios
+- E2E tests reference the same `data-testid` attributes that TEST already specifies for Jest/RTL tests
+- REVIEWER can validate both tiers in its audit without a new role
+
+#### Tooling decision by environment
+
+**Windsurf (v5 — 7-Eleven Windows, MCP-blocked)**
+- Playwright runs headless via `corepack yarn` — no MCP needed
+- Install: `corepack yarn add -D @playwright/test`
+- Run: `corepack yarn playwright test`
+- Tests live in `src/__tests__/e2e/` or a dedicated `playwright/` folder
+- Target: Replit live URL (point tests at `https://your-replit-url.replit.app`)
+- Limitation: no interactive browser agent; tests are written manually or by TEST agent
+
+**Antigravity (Mac/unrestricted — recommended for UI testing)**
+- Use **Playwright MCP** (`@playwright/mcp`) — gives Claude a live browser agent
+- Claude can navigate, click, screenshot, and assert against the running app in real time
+- No test scripts to write manually — Claude drives the browser and reports findings
+- Install in Antigravity: MCP Servers → `@playwright/mcp` → configure with your Replit URL
+- Best for: exploratory E2E validation, regression catching, visual verification
+
+**Claude Code (CLI — also unrestricted)**
+- Same Playwright MCP path as Antigravity
+- Use when you want E2E automation without switching IDEs
+
+#### Recommendation for this project
+
+Port UI/E2E testing to Antigravity using the Playwright MCP browser agent. In Windsurf, TEST continues to write Tier 1 (Jest/RTL) tests as before. The TEST agent prompt should now include an explicit **Tier 2 section** for E2E scenarios that will be run via Antigravity's browser agent.
+
+#### Updated TEST agent prompt addition (append to existing TEST section)
+
+Add this block after the existing TEST output section in your sprint prompt:
+
+```
+## TIER 2: E2E Test Scenarios (for Playwright / Antigravity browser agent)
+
+For each Epic, write E2E scenarios in this format:
+- Scenario ID: E2E-N.X
+- Page: /route
+- Preconditions: (user state, sprint state, data required)
+- Steps: numbered click/type/navigate actions
+- Assertions: what must be true (URL, visible text, element state)
+- data-testid anchors used: list all data-testid values this scenario depends on
+
+Append E2E scenarios to: retro-test/docs/TEST_PLAN.md under "## Sprint N — E2E Scenarios"
+
+Constraint: Every E2E scenario must be executable by a browser agent that can only
+observe: URL, visible DOM text, element existence, and network responses.
+Do NOT write scenarios that require reading application state or sessionStorage directly.
+```
+
+#### Where this is documented
+
+- `teams-retro/.windsurf/cascades/dev.rules` — `data-testid` requirements already enforced
+- `retro-test/docs/TEST_PLAN.md` — Tier 2 sections appended each sprint
+- `MAWv6.md` — updated DEV and TEST prompts reflect the two-tier model
