@@ -194,6 +194,27 @@ These rules prevent architectural bottlenecks that compound at scale. Violating 
 - If a file approaches 150 lines, split into subcomponents
 - Flag files approaching the limit in `docs/IMPLEMENTATION_NOTES.md`
 
+## Output Length Rules — Model-Aware (declare at session start)
+
+Declare your model context at the top of every DEV session prompt using one of these tags:
+
+```
+[DEV] [MODEL: 200K]   ← default; applies chunk rule
+[DEV] [MODEL: 1M]     ← applies full-file rule
+[DEV] [MODEL: 2M]     ← applies full-file rule (Gemini / Antigravity)
+```
+
+### [MODEL: 200K] — Chunk Rule (default when no MODEL tag is declared)
+- If a single file edit exceeds 300 lines, split it into multiple sequential edits
+- Each edit must leave the file in a compilable, non-broken intermediate state
+- Rationale: smaller context windows lose coherence mid-generation on large outputs
+
+### [MODEL: 1M] or [MODEL: 2M] — Full-File Rule
+- Write complete file implementations per turn — do NOT pre-emptively split a single file's logic across multiple turns
+- If the model hits its per-response output limit mid-file, it will naturally continue in the next turn; do NOT artificially pre-split
+- Quality is enforced by the TEST suite (ATDD) — prioritize coherence and cross-file consistency over chunk size
+- Rationale: 1M+ context holds the full codebase simultaneously; splitting introduces inconsistent intermediate states and loses the model's ability to write cohesive, cross-referencing code in one pass
+
 ## What You Write After Implementation
 Create `docs/IMPLEMENTATION_NOTES.md`:
 ```markdown
