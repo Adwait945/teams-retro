@@ -237,7 +237,7 @@ git push origin product-branch
 
 > **What ARCHITECT does**: Designs the technical blueprint — component boundaries, data flow, API specs, service layer contracts, and a Jira-style task checklist for DEV.
 
-> **What TEST does**: Writes the complete test plan and (optionally) test file skeletons — before any code exists. Every test should FAIL at this stage. That's correct.
+> **What TEST does**: Writes the complete test plan covering **two tiers** — Tier 1 (Jest/RTL component tests) and Tier 2 (Playwright E2E browser scenarios). Every Tier 1 test should FAIL before DEV runs. Tier 2 scenarios are executed by the Playwright MCP browser agent in Antigravity after DEV ships.
 
 1. Open a **new Cascade session** in the `retro-architect/` folder.
 2. Paste this combined prompt (fill in absolute paths for your Mac):
@@ -289,6 +289,24 @@ Cover: mock patterns, test cases (each with: Test ID, File, Setup, Action, Asser
 - Do NOT modify or delete any Sprint N-1 tests
 - Do NOT install any test runner — Jest is already configured (npm test runs jest)
 - Append only
+
+---
+
+## TIER 2: E2E Test Scenarios (for Playwright / Antigravity browser agent)
+
+For each Epic, write E2E scenarios in this format:
+- Scenario ID: E2E-N.X
+- Page: /route
+- Preconditions: (user state, sprint state, data required)
+- Steps: numbered click/type/navigate actions
+- Assertions: what must be true (URL, visible text, element state, network response)
+- data-testid anchors used: list all data-testid values this scenario depends on
+
+Append E2E scenarios to: retro-test/docs/TEST_PLAN.md under "## Sprint N — E2E Scenarios"
+
+Constraint: Every E2E scenario must be executable by a browser agent that can only
+observe: URL, visible DOM text, element existence, and network responses.
+Do NOT write scenarios that require reading application state or sessionStorage directly.
 ```
 
 3. Review output. Commit from each worktree:
@@ -312,11 +330,18 @@ git push origin test-branch
 
 > **Session split**: For sprints with significant scope, split DEV into 2–3 sessions aligned to the session breakdown in IMPLEMENTATION_PLAN.md.
 
+> **Model-aware output rule**: Declare your context window at the top of every DEV prompt using `[MODEL: 200K]`, `[MODEL: 1M]`, or `[MODEL: 2M]`. This controls whether the agent chunks large file edits or writes complete files per turn. See Output Length Rules below.
+
 1. Open a **new Cascade session** in the `retro-dev/` folder.
 2. Paste this prompt for **Session 1**:
 
 ```
-[DEV] — Sprint N, Session 1
+[DEV] [MODEL: 1M] — Sprint N, Session 1
+
+## Output Length Rule (derived from [MODEL] tag above)
+# [MODEL: 200K] → split any single file edit >300 lines into sequential edits, each compilable
+# [MODEL: 1M]   → write complete file implementations per turn; do not pre-split; ATDD is the quality gate
+# [MODEL: 2M]   → same as 1M (Gemini / Antigravity)
 
 ## Pre-Flight (run before writing any code)
 1. Read docs/FEATURE_REQUIREMENTS.md
@@ -505,10 +530,11 @@ git push origin reviewer-branch
 | Done? | Agent | Folder | Output Files | Gate |
 |---|---|---|---|---|
 | ☐ | PRODUCT | `retro-product/` | `docs/FEATURE_REQUIREMENTS.md` | Human review |
-| ☐ | ARCHITECT + TEST | `retro-architect/` | `ARCHITECTURE_DESIGN.md` + `IMPLEMENTATION_PLAN.md` + `TEST_PLAN.md` | Human review |
-| ☐ | DEV (each session) | `retro-dev/` | `src/` code + `IMPLEMENTATION_NOTES.md` | `npm test` ✅ + `tsc` ✅ + `build` ✅ |
+| ☐ | ARCHITECT + TEST | `retro-architect/` | `ARCHITECTURE_DESIGN.md` + `IMPLEMENTATION_PLAN.md` + `TEST_PLAN.md` (Tier 1 + Tier 2) | Human review |
+| ☐ | DEV (each session) | `retro-dev/` | `src/` code + `IMPLEMENTATION_NOTES.md` | `npm test` ✅ + `tsc` ✅ + `build` ✅ — declare `[MODEL: Xm]` in prompt |
 | ☐ | PROFESSOR | `retro-dev/` | `docs/CODE_EXPLAINER.md` (appended) | Human skim |
 | ☐ | REVIEWER | `retro-reviewer/` | `docs/AUDIT_REPORT.md` | APPROVED verdict |
+| ☐ | E2E (Antigravity) | Antigravity + Playwright MCP | TEST_PLAN.md Tier 2 scenarios executed | All E2E scenarios pass |
 
 ---
 
@@ -553,7 +579,7 @@ These are the recommended tools for a new project started fresh on Mac. For the 
 |---|---|---|
 | **Package manager** | `pnpm` | Fastest, strictest dependency isolation, monorepo-ready |
 | **Test runner** | `Vitest` | Faster than Jest, native ESM, same API surface |
-| **E2E tests** | `Playwright` | Cross-browser, auto-wait, VS Code extension |
+| **E2E tests** | `Playwright` + Playwright MCP (in Antigravity) | Cross-browser, auto-wait, browser agent in Antigravity |
 | **Type checking** | `tsc` (strict mode) | Already used — no change |
 | **Linting** | `ESLint` + `eslint-config-next` | Already used — no change |
 | **Formatting** | `Prettier` | Add if not already in project |
@@ -591,6 +617,8 @@ Vitest is API-compatible with Jest — test files need zero changes (same `descr
 | Replit | Required for prototypes + smoke test | Optional (localhost:3000 suffices) |
 | Deployment | Replit preview (only option) | Vercel / Netlify / localhost |
 | ARCHITECT + TEST | Two separate sessions (v5 default) | One combined session (recommended in both v5 and v6) |
+| DEV output rule | 300-line chunk rule (always) | Model-aware: 300-line chunks at 200K, full-file per turn at 1M/2M |
+| UI/E2E testing | Playwright headless via corepack yarn | Playwright MCP browser agent in Antigravity (recommended) |
 | Node.js install | Blocked — used pre-installed v24 | Install freely via nvm or Homebrew |
 | Environment variables | `.env.local` + corporate IT review risk | `.env.local` freely |
 
