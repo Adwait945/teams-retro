@@ -9,17 +9,16 @@ import type { User } from "@/types"
 
 interface ShellProps {
   children: React.ReactNode
-  sprintName?: string
 }
 
-const NAV_ITEMS = [
-  { href: "/sprint-setup",  label: "Sprint Setup",    icon: Settings },
+const BASE_NAV = [
   { href: "/dashboard",     label: "Dashboard",       icon: LayoutDashboard },
   { href: "/feedback",      label: "Feedback Board",  icon: MessageSquare },
   { href: "/action-items",  label: "Action Items",    icon: CheckSquare },
 ]
+const POD_SETTINGS_NAV = { href: "/pod-settings", label: "Pod Settings", icon: Settings }
 
-export default function Shell({ children, sprintName }: ShellProps) {
+export default function Shell({ children }: ShellProps) {
   const pathname = usePathname()
   const router = useRouter()
   const [currentUser, setCurrentUser] = useState<User | null>(null)
@@ -45,14 +44,9 @@ export default function Shell({ children, sprintName }: ShellProps) {
           RetroBoard
         </div>
 
-        {/* Sprint label */}
-        <div className="px-6 mb-2 text-xs font-medium text-muted-foreground uppercase tracking-wider">
-          {sprintName ?? ""}
-        </div>
-
         {/* Nav */}
         <nav className="flex-1 px-4 space-y-1">
-          {NAV_ITEMS.map((item) => {
+          {(currentUser?.isAdmin ? [...BASE_NAV, POD_SETTINGS_NAV] : BASE_NAV).map((item) => {
             const isActive = pathname === item.href
             return (
               <Link key={item.href} href={item.href}>

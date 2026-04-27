@@ -6,18 +6,15 @@ import { Plus } from 'lucide-react'
 import Shell from '@/components/layout/Shell'
 import FeedbackColumn from '@/components/FeedbackColumn'
 import { getCurrentUser } from '@/services/userService'
-import { getFeedbackByLane, addFeedback, upvoteFeedback } from '@/services/feedbackService'
+import { getFeedbackByWindowAndLane, addFeedback, upvoteFeedback } from '@/services/feedbackService'
 import SubmitFeedbackModal from '@/components/SubmitFeedbackModal'
-import ConvertActionModal from '@/components/ConvertActionModal'
 import { createAction } from '@/services/actionService'
-import type { Sprint, FeedbackItem, FeedbackCategory, User } from '@/types'
+import type { FeedbackItem, FeedbackCategory, User } from '@/types'
 import type { CreateActionPayload } from '@/services/actionService'
 
 export default function FeedbackPage() {
   const router = useRouter()
 
-  const [allSprints, setAllSprints] = useState<Sprint[]>([])
-  const [sprint, setSprint] = useState<Sprint | null>(null)
   const [slowedDown, setSlowedDown] = useState<FeedbackItem[]>([])
   const [shouldTry, setShouldTry] = useState<FeedbackItem[]>([])
   const [wentWell, setWentWell] = useState<FeedbackItem[]>([])
@@ -27,17 +24,18 @@ export default function FeedbackPage() {
   const [users, setUsers] = useState<Pick<User, '_id' | 'name'>[]>([])
   const [isLoading, setIsLoading] = useState(true)
   const [loadError, setLoadError] = useState(false)
+  const [activeWindow] = useState('7d')
 
-  const refetch = useCallback(async (sprintId: string) => {
+  const refetch = useCallback(async () => {
     const [slowed, should, well] = await Promise.all([
-      getFeedbackByLane(sprintId, 'slowed-us-down'),
-      getFeedbackByLane(sprintId, 'should-try'),
-      getFeedbackByLane(sprintId, 'went-well'),
+      getFeedbackByWindowAndLane(activeWindow, 'slowed-us-down'),
+      getFeedbackByWindowAndLane(activeWindow, 'should-try'),
+      getFeedbackByWindowAndLane(activeWindow, 'went-well'),
     ])
     setSlowedDown(slowed)
     setShouldTry(should)
     setWentWell(well)
-  }, [])
+  }, [activeWindow])
 
   useEffect(() => {
     const user = getCurrentUser()
@@ -48,15 +46,7 @@ export default function FeedbackPage() {
 
     async function load() {
       try {
-        const [sprintRes, usersRes] = await Promise.all([
-          fetch('/api/sprints?all=true'),
-          fetch('/api/users'),
-        ])
-        const sprintData: Sprint[] = await sprintRes.json()
-        const sprints = Array.isArray(sprintData) ? sprintData : []
-        setAllSprints(sprints)
-        const activeSprint = sprints.find((s) => s.status === 'open') ?? sprints[0] ?? null
-        setSprint(activeSprint)
+        const usersRes = await fetch('/api/users')
 
         if (usersRes.ok) {
           const usersData: unknown = await usersRes.json()
@@ -65,9 +55,7 @@ export default function FeedbackPage() {
           }
         }
 
-        if (activeSprint) {
-          await refetch(activeSprint._id)
-        }
+        await refetch()
       } catch {
         setLoadError(true)
       } finally {
@@ -77,15 +65,6 @@ export default function FeedbackPage() {
 
     load()
   }, [router, refetch])
-
-  async function handleSprintChange(sprintId: string) {
-    const selected = allSprints.find((s) => s._id === sprintId) ?? null
-    setSprint(selected)
-    setSlowedDown([])
-    setShouldTry([])
-    setWentWell([])
-    if (selected) await refetch(selected._id)
-  }
 
   const currentUser = getCurrentUser()
 
@@ -121,6 +100,7 @@ export default function FeedbackPage() {
   async function handleConvertSubmit(payload: CreateActionPayload) {
     await createAction(payload)
     setShowConvertModal(false)
+    await refetch()
   }
 
   async function onSubmitFeedback(payload: {
@@ -130,14 +110,14 @@ export default function FeedbackPage() {
     isAnonymous: boolean
   }) {
     const user = getCurrentUser()
-    if (!user || !sprint) return
-    await addFeedback({ ...payload, sprintId: sprint._id, authorId: user._id })
-    await refetch(sprint._id)
+    if (!user) return
+    await addFeedback({ ...payload, authorId: user._id })
+    await refetch()
   }
 
   if (isLoading) {
     return (
-      <Shell sprintName="">
+      <Shell>
         <div className="flex items-center justify-center h-full text-muted-foreground text-sm">
           Loading...
         </div>
@@ -147,7 +127,7 @@ export default function FeedbackPage() {
 
   if (loadError) {
     return (
-      <Shell sprintName="">
+      <Shell>
         <div data-testid="load-error" className="flex items-center justify-center h-full text-red-400 text-sm">
           Something went wrong. Please try again.
         </div>
@@ -156,7 +136,7 @@ export default function FeedbackPage() {
   }
 
   return (
-    <Shell sprintName={sprint?.name}>
+    <Shell>
       <div className="h-full flex flex-col animate-in fade-in slide-in-from-bottom-4 duration-500 relative z-0">
         <div className="flex items-center justify-between mb-6 shrink-0">
           <div>
@@ -164,47 +144,16 @@ export default function FeedbackPage() {
             <p className="text-sm text-muted-foreground mt-0.5">
               Review, vote, and convert feedback to action.
             </p>
-            {allSprints.length > 1 && (
-              <div className="flex items-center gap-2 mt-2">
-                <label htmlFor="sprint-select" className="text-xs font-medium text-muted-foreground">
-                  Sprint:
-                </label>
-                <select
-                  id="sprint-select"
-                  data-testid="sprint-selector"
-                  value={sprint?._id ?? ''}
-                  onChange={(e) => handleSprintChange(e.target.value)}
-                  className="text-sm bg-secondary border border-border rounded-md px-3 py-1.5 text-slate-200 focus:outline-none focus:ring-1 focus:ring-primary"
-                >
-                  {allSprints.map((s) => (
-                    <option key={s._id} value={s._id}>
-                      {s.name}{s.status === 'open' ? ' (Active)' : ''}
-                    </option>
-                  ))}
-                </select>
-              </div>
-            )}
           </div>
           <button
-            onClick={() => { if (sprint && sprint.status !== 'closed') setShowModal(true) }}
+            onClick={() => setShowModal(true)}
             data-testid="open-modal-btn"
-            disabled={!sprint || sprint.status === 'closed'}
-            aria-label={!sprint ? 'No active sprint' : sprint.status === 'closed' ? 'Feedback submission is closed' : undefined}
-            className={'flex items-center gap-2 bg-primary text-primary-foreground hover:bg-primary/90 font-medium px-4 py-2 rounded-md text-sm transition-colors' + (!sprint || sprint.status === 'closed' ? ' opacity-50 cursor-not-allowed' : '')}
+            className="flex items-center gap-2 bg-primary text-primary-foreground hover:bg-primary/90 font-medium px-4 py-2 rounded-md text-sm transition-colors"
           >
             <Plus className="w-4 h-4" />
             Submit Feedback
           </button>
         </div>
-
-        {!sprint && (
-          <div
-            data-testid="feedback-empty-state"
-            className="flex-1 flex items-center justify-center text-sm text-muted-foreground"
-          >
-            No active sprint. Set one up to begin.
-          </div>
-        )}
 
         <div className="flex-1 grid grid-cols-3 gap-6 min-h-0">
           <FeedbackColumn
@@ -213,6 +162,7 @@ export default function FeedbackPage() {
             onUpvote={handleUpvote}
             currentUserId={currentUser?._id ?? ''}
             onConvert={handleConvert}
+            isAdmin={currentUser?.isAdmin ?? false}
           />
           <FeedbackColumn
             category="should-try"
@@ -220,6 +170,7 @@ export default function FeedbackPage() {
             onUpvote={handleUpvote}
             currentUserId={currentUser?._id ?? ''}
             onConvert={handleConvert}
+            isAdmin={currentUser?.isAdmin ?? false}
           />
           <FeedbackColumn
             category="went-well"
@@ -227,6 +178,7 @@ export default function FeedbackPage() {
             onUpvote={handleUpvote}
             currentUserId={currentUser?._id ?? ''}
             onConvert={handleConvert}
+            isAdmin={currentUser?.isAdmin ?? false}
           />
         </div>
 
@@ -234,16 +186,6 @@ export default function FeedbackPage() {
           open={showModal}
           onClose={() => setShowModal(false)}
           onSubmit={onSubmitFeedback}
-          sprintId={sprint?._id ?? ''}
-        />
-
-        <ConvertActionModal
-          open={showConvertModal}
-          feedbackItem={convertTarget}
-          sprintId={sprint?._id ?? ''}
-          users={users}
-          onClose={() => setShowConvertModal(false)}
-          onSubmit={handleConvertSubmit}
         />
       </div>
     </Shell>

@@ -25,6 +25,9 @@ export async function PATCH(
       )
     }
     item.status = nextStatus
+    if (nextStatus === 'completed') {
+      item.completedAt = new Date()
+    }
     await item.save()
     return NextResponse.json(item, { status: 200 })
   } catch (err) {

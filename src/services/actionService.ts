@@ -4,14 +4,13 @@ export interface CreateActionPayload {
   title: string
   description: string
   ownerId: string
-  dueDate: string
-  sourceFeedbackId: string
-  sourceQuote: string
-  sprintId: string
+  dueDate: string | null
+  sourceFeedbackId?: string
+  sourceQuote?: string
 }
 
-export async function getActions(sprintId?: string): Promise<ActionItem[]> {
-  const url = sprintId ? `/api/actions?sprintId=${sprintId}` : "/api/actions"
+export async function getActions(window?: string): Promise<ActionItem[]> {
+  const url = window ? `/api/actions?window=${window}` : '/api/actions'
   const res = await fetch(url)
   if (!res.ok) throw new Error("Failed to fetch actions")
   return res.json()
@@ -20,8 +19,8 @@ export async function getActions(sprintId?: string): Promise<ActionItem[]> {
 export function getCompletionRate(actions: ActionItem[]): number {
   const total = actions.length
   if (total === 0) return 0
-  const verified = actions.filter((a) => a.status === 'verified').length
-  return Math.round((verified / total) * 100)
+  const completed = actions.filter((a) => a.status === 'completed' || a.status === 'verified').length
+  return Math.round((completed / total) * 100)
 }
 
 export function getOpenCount(actions: ActionItem[]): number {

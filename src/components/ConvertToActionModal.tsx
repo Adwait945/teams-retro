@@ -1,31 +1,37 @@
 "use client"
 
-import { useState, useEffect, useRef } from 'react'
+import { useState, useRef, useEffect } from 'react'
 import { X } from 'lucide-react'
 import type { FeedbackItem, User } from '@/types'
 import type { CreateActionPayload } from '@/services/actionService'
 
-interface ConvertActionModalProps {
+interface ConvertToActionModalProps {
   open: boolean
   feedbackItem: FeedbackItem | null
-  sprintId: string
   users: Pick<User, '_id' | 'name'>[]
   onClose: () => void
   onSubmit: (payload: CreateActionPayload) => Promise<void>
 }
 
-export default function ConvertActionModal({
+export default function ConvertToActionModal({
   open,
   feedbackItem,
-  sprintId,
   users,
   onClose,
   onSubmit,
-}: ConvertActionModalProps) {
-  const [title, setTitle]             = useState('')
-  const [description, setDescription] = useState('')
-  const [ownerId, setOwnerId]         = useState('')
-  const [dueDate, setDueDate]         = useState('')
+}: ConvertToActionModalProps) {
+  const prefillTitle = feedbackItem?.content ?? ''
+  const prefillDescription = (() => {
+    if (!feedbackItem) return ''
+    if (feedbackItem.category === 'went-well') return ''
+    return feedbackItem.suggestion?.trim() ? feedbackItem.suggestion : ''
+  })()
+  const sourceAuthorDisplay = feedbackItem?.isAnonymous ? 'Anonymous' : 'Feedback author'
+
+  const [title, setTitle] = useState(prefillTitle)
+  const [description, setDescription] = useState(prefillDescription)
+  const [ownerId, setOwnerId] = useState('')
+  const [dueDate, setDueDate] = useState('')
   const [isSubmitting, setIsSubmitting] = useState(false)
 
   const modalRef = useRef<HTMLDivElement>(null)
@@ -62,6 +68,11 @@ export default function ConvertActionModal({
   useEffect(() => {
     if (feedbackItem) {
       setTitle(feedbackItem.content)
+      if (feedbackItem.category === 'went-well') {
+        setDescription('')
+      } else {
+        setDescription(feedbackItem.suggestion?.trim() ? feedbackItem.suggestion : '')
+      }
     }
   }, [feedbackItem])
 
@@ -81,16 +92,16 @@ export default function ConvertActionModal({
 
   async function handleSubmit(e: React.FormEvent) {
     e.preventDefault()
+    if (!feedbackItem) return
     setIsSubmitting(true)
     try {
       await onSubmit({
-        title,
-        description,
+        title: title.trim(),
+        description: description.trim(),
         ownerId,
-        dueDate,
-        sourceFeedbackId: feedbackItem!._id,
-        sourceQuote: feedbackItem!.content,
-        sprintId,
+        dueDate: dueDate || null,
+        sourceFeedbackId: feedbackItem._id,
+        sourceQuote: feedbackItem.content,
       })
       handleClose()
     } finally {
@@ -107,22 +118,22 @@ export default function ConvertActionModal({
         ref={modalRef}
         role="dialog"
         aria-modal="true"
-        aria-labelledby="cam-title"
-        data-testid="convert-action-modal"
+        aria-labelledby="cta-title"
+        data-testid="convert-to-action-modal"
         className="w-full max-w-[540px] mx-4 rounded-xl border border-border/50 bg-background/95 shadow-2xl"
       >
         {/* Header */}
         <div className="flex items-center justify-between px-6 pt-6 pb-4 border-b border-border/50">
           <div>
-            <h2 id="cam-title" className="text-lg font-semibold">Convert to Action Item</h2>
+            <h2 id="cta-title" className="text-lg font-semibold">Convert to Action Item</h2>
             <p className="text-sm text-muted-foreground mt-0.5">
-              Create an action item from this high-voted feedback.
+              Create an action item from this feedback. Source: {sourceAuthorDisplay}
             </p>
           </div>
           <button
             type="button"
             onClick={handleClose}
-            data-testid="cam-close-btn"
+            data-testid="convert-cancel-btn"
             aria-label="Close"
             className="p-1 rounded-md text-muted-foreground hover:text-foreground hover:bg-secondary/50 transition-colors"
           >
@@ -130,53 +141,53 @@ export default function ConvertActionModal({
           </button>
         </div>
 
-        {/* Form */}
-        <form onSubmit={handleSubmit} className="px-6 py-5 space-y-4">
-          {/* Source quote */}
-          <blockquote className="border-l-4 border-blue-500 pl-3 py-1">
+        {/* Source quote */}
+        <div className="px-6 pt-4">
+          <blockquote className="border-l-4 border-amber-500 pl-3 py-1">
             <p className="text-sm text-slate-300 italic">{feedbackItem.content}</p>
           </blockquote>
+        </div>
 
+        {/* Form */}
+        <form onSubmit={handleSubmit} className="px-6 py-5 space-y-4">
           {/* Title */}
           <div>
-            <label htmlFor="cam-title-input" className="block text-sm font-medium mb-1.5">
+            <label htmlFor="cta-title-input" className="block text-sm font-medium mb-1.5">
               Title <span className="text-red-400">*</span>
             </label>
             <input
-              id="cam-title-input"
-              data-testid="cam-title-input"
+              id="cta-title-input"
+              data-testid="convert-title-input"
               type="text"
               value={title}
               onChange={(e) => setTitle(e.target.value)}
-              placeholder="e.g. Add automated test coverage"
               className="w-full rounded-lg border border-border/50 bg-secondary/50 px-3 py-2 text-sm placeholder:text-muted-foreground focus:outline-none focus:ring-2 focus:ring-ring"
             />
           </div>
 
           {/* Description */}
           <div>
-            <label htmlFor="cam-description" className="block text-sm font-medium mb-1.5">
+            <label htmlFor="cta-description" className="block text-sm font-medium mb-1.5">
               Description
             </label>
             <textarea
-              id="cam-description"
-              data-testid="cam-description"
+              id="cta-description"
+              data-testid="convert-description-input"
               value={description}
               onChange={(e) => setDescription(e.target.value)}
-              placeholder="Details on how to implement this..."
               rows={3}
               className="w-full rounded-lg border border-border/50 bg-secondary/50 px-3 py-2.5 text-sm placeholder:text-muted-foreground focus:outline-none focus:ring-2 focus:ring-ring resize-none min-h-[72px]"
             />
           </div>
 
-          {/* Assigned To */}
+          {/* Owner */}
           <div>
-            <label htmlFor="cam-owner" className="block text-sm font-medium mb-1.5">
-              Assigned To <span className="text-red-400">*</span>
+            <label htmlFor="cta-owner" className="block text-sm font-medium mb-1.5">
+              Owner <span className="text-red-400">*</span>
             </label>
             <select
-              id="cam-owner"
-              data-testid="cam-owner"
+              id="cta-owner"
+              data-testid="convert-owner-select"
               value={ownerId}
               onChange={(e) => setOwnerId(e.target.value)}
               className="w-full rounded-lg border border-border/50 bg-secondary/50 px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-ring"
@@ -190,12 +201,12 @@ export default function ConvertActionModal({
 
           {/* Due Date */}
           <div>
-            <label htmlFor="cam-due-date" className="block text-sm font-medium mb-1.5">
+            <label htmlFor="cta-due-date" className="block text-sm font-medium mb-1.5">
               Due Date
             </label>
             <input
-              id="cam-due-date"
-              data-testid="cam-due-date"
+              id="cta-due-date"
+              data-testid="convert-due-date-input"
               type="date"
               value={dueDate}
               onChange={(e) => setDueDate(e.target.value)}
@@ -208,7 +219,6 @@ export default function ConvertActionModal({
             <button
               type="button"
               onClick={handleClose}
-              data-testid="cam-cancel-btn"
               className="px-4 py-2 rounded-md border border-border/50 text-sm font-medium hover:bg-secondary/50 transition-colors"
             >
               Cancel
@@ -216,7 +226,7 @@ export default function ConvertActionModal({
             <button
               type="submit"
               disabled={submitDisabled}
-              data-testid="convert-action-submit-btn"
+              data-testid="convert-submit-btn"
               className="px-4 py-2 rounded-md bg-amber-500 hover:bg-amber-600 text-white text-sm font-semibold disabled:opacity-50 disabled:cursor-not-allowed transition-colors"
             >
               {isSubmitting ? 'Creating…' : 'Create Action Item'}

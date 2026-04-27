@@ -17,8 +17,8 @@ jest.mock('@/services/userService', () => ({
 }))
 
 jest.mock('@/services/feedbackService', () => ({
-  getFeedbackByLane: jest.fn(),
-  getFeedback: jest.fn(),
+  getFeedbackByWindowAndLane: jest.fn(),
+  getFeedbackByWindow: jest.fn(),
   sortByUpvotes: jest.fn().mockImplementation((items: unknown[]) => [...items]),
   getAuthorDisplay: jest.fn().mockImplementation(
     (item: { isAnonymous: boolean }, name?: string) =>
@@ -37,7 +37,7 @@ jest.mock('@/components/layout/Shell', () => ({
 
 import FeedbackBoardPage from '@/app/feedback/page'
 import { getCurrentUser } from '@/services/userService'
-import { getFeedbackByLane, upvoteFeedback } from '@/services/feedbackService'
+import { getFeedbackByWindowAndLane, upvoteFeedback } from '@/services/feedbackService'
 import type { FeedbackItem } from '@/types'
 
 const mockUser = {
@@ -49,16 +49,6 @@ const mockUser = {
   createdAt: '2026-04-01T00:00:00.000Z',
 }
 
-const mockSprint = {
-  _id: 'sprint-1',
-  name: 'Sprint 42',
-  status: 'open',
-  goal: '',
-  startDate: '2026-04-01T00:00:00.000Z',
-  endDate: '2026-04-14T00:00:00.000Z',
-  teamMemberIds: ['user-1'],
-}
-
 function makeFeedbackItem(overrides: Partial<FeedbackItem> = {}): FeedbackItem {
   return {
     _id: 'fb-' + Math.random().toString(36).slice(2),
@@ -67,7 +57,7 @@ function makeFeedbackItem(overrides: Partial<FeedbackItem> = {}): FeedbackItem {
     suggestion: '',
     authorId: 'user-1',
     isAnonymous: false,
-    sprintId: 'sprint-1',
+    actionItemIds: [],
     upvotedBy: [],
     upvotes: 0,
     createdAt: new Date().toISOString(),
@@ -84,10 +74,12 @@ beforeEach(() => {
   jest.clearAllMocks()
   sessionStorage.clear()
   ;(getCurrentUser as jest.Mock).mockReturnValue(mockUser)
-  ;(getFeedbackByLane as jest.Mock).mockResolvedValue([])
-  ;(global.fetch as jest.Mock) = jest.fn().mockResolvedValue({
-    ok: true,
-    json: async () => mockSprint,
+  ;(getFeedbackByWindowAndLane as jest.Mock).mockResolvedValue([])
+  ;(global.fetch as jest.Mock) = jest.fn().mockImplementation((url: string) => {
+    if (url.includes('/api/users')) {
+      return Promise.resolve({ ok: true, json: async () => [mockUser] })
+    }
+    return Promise.resolve({ ok: true, json: async () => [] })
   })
 })
 
@@ -228,7 +220,7 @@ test('FB-10: slowed-us-down with non-empty suggestion enables the submit button'
 test('FB-11: upvoting own feedback is handled gracefully — count unchanged', async () => {
   const ownFeedback = makeFeedbackItem({ authorId: 'user-1', upvotes: 2, category: 'went-well' })
 
-  ;(getFeedbackByLane as jest.Mock).mockImplementation(
+  ;(getFeedbackByWindowAndLane as jest.Mock).mockImplementation(
     (_sprintId: string, category: string) =>
       category === 'went-well' ? Promise.resolve([ownFeedback]) : Promise.resolve([])
   )
@@ -258,7 +250,7 @@ test('FB-12: second upvote returns 409 silently — count does not increment bey
   // Use call-count-based mock so any extra draining calls (from act) return
   // the correct stable state rather than [] from the beforeEach default.
   let laneCallCount = 0
-  ;(getFeedbackByLane as jest.Mock).mockImplementation((_sid: string, cat: string) => {
+  ;(getFeedbackByWindowAndLane as jest.Mock).mockImplementation((_sid: string, cat: string) => {
     laneCallCount++
     // First 3 calls = initial load
     if (laneCallCount <= 3) {
@@ -298,7 +290,7 @@ test('FB-13: successful upvote re-fetches board and shows API count', async () =
   const updatedItem = { ...feedbackItem, upvotes: 8 }
 
   let laneCallCount = 0
-  ;(getFeedbackByLane as jest.Mock).mockImplementation((_sid: string, cat: string) => {
+  ;(getFeedbackByWindowAndLane as jest.Mock).mockImplementation((_sid: string, cat: string) => {
     laneCallCount++
     if (laneCallCount <= 3) {
       return Promise.resolve(cat === 'went-well' ? [feedbackItem] : [])
@@ -321,7 +313,7 @@ test('FB-13: successful upvote re-fetches board and shows API count', async () =
   })
 
   // At minimum 6 calls: 3 initial + 3 re-fetch after upvote
-  expect(getFeedbackByLane).toHaveBeenCalledTimes(laneCallCount)
+  expect(getFeedbackByWindowAndLane).toHaveBeenCalledTimes(laneCallCount)
   expect(laneCallCount).toBeGreaterThanOrEqual(6)
 })
 
@@ -333,13 +325,13 @@ describe('Sprint 3 — Convert to Action flow', () => {
     jest.clearAllMocks()
     sessionStorage.clear()
     ;(getCurrentUser as jest.Mock).mockReturnValue(mockUser)
-    ;(getFeedbackByLane as jest.Mock).mockResolvedValue([])
+    ;(getFeedbackByWindowAndLane as jest.Mock).mockResolvedValue([])
 
     ;(global.fetch as jest.Mock) = jest.fn().mockImplementation((url: string) => {
       if ((url as string).includes('/api/users')) {
         return Promise.resolve({ ok: true, json: async () => [mockUser] })
       }
-      return Promise.resolve({ ok: true, json: async () => mockSprint })
+      return Promise.resolve({ ok: true, json: async () => [] })
     })
   })
 
@@ -351,7 +343,7 @@ describe('Sprint 3 — Convert to Action flow', () => {
       content:  'Adopt a no-meeting Thursday policy.',
       authorId: 'user-other',
     })
-    ;(getFeedbackByLane as jest.Mock).mockImplementation(
+    ;(getFeedbackByWindowAndLane as jest.Mock).mockImplementation(
       (_sprintId: string, category: string) =>
         category === 'should-try' ? Promise.resolve([shouldTryItem]) : Promise.resolve([])
     )
@@ -376,7 +368,7 @@ describe('Sprint 3 — Convert to Action flow', () => {
       content:  'Great sprint review session.',
       authorId: 'user-other',
     })
-    ;(getFeedbackByLane as jest.Mock).mockImplementation(
+    ;(getFeedbackByWindowAndLane as jest.Mock).mockImplementation(
       (_sprintId: string, category: string) => {
         if (category === 'should-try') return Promise.resolve([shouldTryItem])
         if (category === 'went-well')  return Promise.resolve([wentWellItem])
@@ -400,7 +392,7 @@ describe('Sprint 3 — Convert to Action flow', () => {
       content:  'Adopt a no-meeting Thursday policy.',
       authorId: 'user-other',
     })
-    ;(getFeedbackByLane as jest.Mock).mockImplementation(
+    ;(getFeedbackByWindowAndLane as jest.Mock).mockImplementation(
       (_sprintId: string, category: string) =>
         category === 'should-try' ? Promise.resolve([shouldTryItem]) : Promise.resolve([])
     )

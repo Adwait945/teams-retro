@@ -1,24 +1,16 @@
 import type { FeedbackItem, FeedbackCategory } from '@/types'
 
-export async function getFeedback(sprintId?: string): Promise<FeedbackItem[]> {
-  let resolvedSprintId = sprintId
-  if (!resolvedSprintId) {
-    const res = await fetch('/api/sprints')
-    if (!res.ok) throw new Error('Failed to fetch active sprint')
-    const sprint = await res.json()
-    resolvedSprintId = sprint?._id
-    if (!resolvedSprintId) return []
-  }
-  const res = await fetch(`/api/feedback?sprintId=${resolvedSprintId}`)
+export async function getFeedbackByWindow(window: string = '7d'): Promise<FeedbackItem[]> {
+  const res = await fetch(`/api/feedback?window=${window}`)
   if (!res.ok) throw new Error('Failed to fetch feedback')
   return res.json()
 }
 
-export async function getFeedbackByLane(
-  sprintId: string,
+export async function getFeedbackByWindowAndLane(
+  window: string,
   category: FeedbackCategory
 ): Promise<FeedbackItem[]> {
-  const res = await fetch(`/api/feedback?sprintId=${sprintId}&category=${category}`)
+  const res = await fetch(`/api/feedback?window=${window}&category=${category}`)
   if (!res.ok) throw new Error(`Failed to fetch feedback for lane: ${category}`)
   return res.json()
 }
@@ -37,7 +29,6 @@ export async function addFeedback(payload: {
   content: string
   suggestion: string
   isAnonymous: boolean
-  sprintId: string
   authorId?: string
 }): Promise<FeedbackItem> {
   if (payload.category === 'slowed-us-down' && !payload.suggestion?.trim()) {

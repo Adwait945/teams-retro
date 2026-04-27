@@ -2,11 +2,6 @@ import { NextRequest, NextResponse } from 'next/server'
 import { connectDB } from '@/lib/db'
 import ActionItemModel from '@/lib/models/ActionItem'
 
-const REGRESS_MAP: Record<string, string> = {
-  'in-progress': 'open',
-  'completed': 'in-progress',
-}
-
 export async function PATCH(
   req: NextRequest,
   { params }: { params: { id: string } }
@@ -17,18 +12,37 @@ export async function PATCH(
     if (!item) {
       return NextResponse.json({ error: 'Action item not found' }, { status: 404 })
     }
-    const prevStatus = REGRESS_MAP[item.status]
-    if (!prevStatus) {
+
+    if (item.status === 'verified') {
       return NextResponse.json(
-        { error: 'Cannot regress: item is already open or verified' },
-        { status: 409 }
+        { error: 'Verified actions cannot be regressed' },
+        { status: 400 }
       )
     }
-    item.status = prevStatus
-    await item.save()
-    return NextResponse.json(item, { status: 200 })
+
+    if (item.status === 'open') {
+      return NextResponse.json(
+        { error: 'Cannot regress from open status' },
+        { status: 400 }
+      )
+    }
+
+    if (item.status === 'completed') {
+      item.status = 'in-progress'
+      item.completedAt = undefined
+      await item.save()
+      return NextResponse.json(item, { status: 200 })
+    }
+
+    if (item.status === 'in-progress') {
+      item.status = 'open'
+      await item.save()
+      return NextResponse.json(item, { status: 200 })
+    }
+
+    return NextResponse.json({ error: 'Unknown status' }, { status: 400 })
   } catch (err) {
-    console.error('[PATCH /api/actions/[id]/regress]', err)
+    void err
     return NextResponse.json({ error: 'Internal server error' }, { status: 500 })
   }
 }

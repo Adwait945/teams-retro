@@ -20,13 +20,11 @@ import {
   getCompletionRate,
   type CreateActionPayload,
 } from '@/services/actionService'
-import type { ActionItem, Sprint, User } from '@/types'
+import type { ActionItem, User } from '@/types'
 
 export default function ActionItemsPage() {
   const router = useRouter()
 
-  const [allSprints, setAllSprints]       = useState<Sprint[]>([])
-  const [sprint, setSprint]               = useState<Sprint | null>(null)
   const [actions, setActions]             = useState<ActionItem[]>([])
   const [users, setUsers]                 = useState<Pick<User, '_id' | 'name'>[]>([])
   const [showNewModal, setShowNewModal]   = useState(false)
@@ -35,9 +33,10 @@ export default function ActionItemsPage() {
   const [isLoading, setIsLoading]         = useState(true)
   const [error, setError]                 = useState<string | null>(null)
   const [actionError, setActionError]     = useState<string | null>(null)
+  const [currentUser, setCurrentUser]     = useState<User | null>(null)
 
-  const refetch = useCallback(async (sprintId: string) => {
-    const items = await getActions(sprintId)
+  const refetch = useCallback(async () => {
+    const items = await getActions('7d')
     setActions(getActionsByStatus(items))
   }, [])
 
@@ -47,31 +46,15 @@ export default function ActionItemsPage() {
       router.push('/')
       return
     }
-
-    const controller = new AbortController()
+    setCurrentUser(user)
 
     async function load() {
       try {
-        const [sprintRes, usersRes] = await Promise.all([
-          fetch('/api/sprints?all=true', { signal: controller.signal }),
-          fetch('/api/users', { signal: controller.signal }),
-        ])
-        if (!sprintRes.ok) throw new Error('Failed to fetch sprints')
+        const usersRes = await fetch('/api/users')
         if (!usersRes.ok) throw new Error('Failed to fetch users')
-
-        const sprintData: Sprint[] = await sprintRes.json()
         const usersData: User[] = await usersRes.json()
-
-        const sprints = Array.isArray(sprintData) ? sprintData : []
-        setAllSprints(sprints)
-
-        const activeSprint = sprints.find((s) => s.status === 'open') ?? sprints[0] ?? null
-        setSprint(activeSprint)
         setUsers(usersData.map((u) => ({ _id: u._id, name: u.name })))
-
-        if (activeSprint) {
-          await refetch(activeSprint._id)
-        }
+        await refetch()
       } catch (err) {
         if ((err as { name?: string }).name !== 'AbortError') {
           setError('Failed to load data.')
@@ -82,15 +65,7 @@ export default function ActionItemsPage() {
     }
 
     load()
-    return () => controller.abort()
   }, [router, refetch])
-
-  async function handleSprintChange(sprintId: string) {
-    const selected = allSprints.find((s) => s._id === sprintId) ?? null
-    setSprint(selected)
-    if (selected) await refetch(selected._id)
-    else setActions([])
-  }
 
   const usersMap: Record<string, string> = {}
   for (const u of users) {
@@ -101,7 +76,7 @@ export default function ActionItemsPage() {
     setActionError(null)
     try {
       await advanceStatus(itemId)
-      if (sprint) await refetch(sprint._id)
+      await refetch()
     } catch (err) {
       setActionError((err as Error).message ?? 'Failed to advance status')
     }
@@ -111,7 +86,7 @@ export default function ActionItemsPage() {
     setActionError(null)
     try {
       await regressStatus(itemId)
-      if (sprint) await refetch(sprint._id)
+      await refetch()
     } catch (err) {
       setActionError((err as Error).message ?? 'Failed to regress status')
     }
@@ -125,7 +100,7 @@ export default function ActionItemsPage() {
   async function handleVerifySubmit(itemId: string, impactNote: string) {
     try {
       await verifyImpact(itemId, impactNote)
-      if (sprint) await refetch(sprint._id)
+      await refetch()
     } catch {
       // silent no-op
     } finally {
@@ -135,7 +110,7 @@ export default function ActionItemsPage() {
 
   async function handleCreateAction(payload: CreateActionPayload) {
     await createAction(payload)
-    if (sprint) await refetch(sprint._id)
+    await refetch()
   }
 
   const openCount       = getOpenCount(actions)
@@ -146,7 +121,7 @@ export default function ActionItemsPage() {
 
   if (isLoading) {
     return (
-      <Shell sprintName="">
+      <Shell>
         <div className="flex items-center justify-center h-full text-muted-foreground text-sm">
           Loading...
         </div>
@@ -156,7 +131,7 @@ export default function ActionItemsPage() {
 
   if (error) {
     return (
-      <Shell sprintName={sprint?.name}>
+      <Shell>
         <div className="flex items-center justify-center h-full text-red-400 text-sm">
           {error}
         </div>
@@ -165,7 +140,7 @@ export default function ActionItemsPage() {
   }
 
   return (
-    <Shell sprintName={sprint?.name}>
+    <Shell>
       <div className="h-full flex flex-col animate-in fade-in slide-in-from-bottom-4 duration-500">
         <div className="flex items-center justify-between mb-4 shrink-0">
           <div>
@@ -174,36 +149,17 @@ export default function ActionItemsPage() {
               Track, advance, and verify team commitments.
             </p>
           </div>
-          <button
-            onClick={() => setShowNewModal(true)}
-            data-testid="open-new-action-btn"
-            className="flex items-center gap-2 bg-primary text-primary-foreground hover:bg-primary/90 font-medium px-4 py-2 rounded-md text-sm transition-colors"
-          >
-            <Plus className="w-4 h-4" />
-            New Action Item
-          </button>
-        </div>
-
-        {allSprints.length > 1 && (
-          <div className="flex items-center gap-2 mb-4 shrink-0">
-            <label htmlFor="sprint-select" className="text-xs font-medium text-muted-foreground">
-              Sprint:
-            </label>
-            <select
-              id="sprint-select"
-              data-testid="sprint-selector"
-              value={sprint?._id ?? ''}
-              onChange={(e) => handleSprintChange(e.target.value)}
-              className="text-sm bg-secondary border border-border rounded-md px-3 py-1.5 text-slate-200 focus:outline-none focus:ring-1 focus:ring-primary"
+          {currentUser?.isAdmin && (
+            <button
+              onClick={() => setShowNewModal(true)}
+              data-testid="open-new-action-btn"
+              className="flex items-center gap-2 bg-primary text-primary-foreground hover:bg-primary/90 font-medium px-4 py-2 rounded-md text-sm transition-colors"
             >
-              {allSprints.map((s) => (
-                <option key={s._id} value={s._id}>
-                  {s.name}{s.status === 'open' ? ' (Active)' : ''}
-                </option>
-              ))}
-            </select>
-          </div>
-        )}
+              <Plus className="w-4 h-4" />
+              New Action Item
+            </button>
+          )}
+        </div>
 
         {actionError && (
           <div className="mb-3 shrink-0 text-xs text-red-400 bg-red-500/10 border border-red-500/30 rounded-md px-3 py-2">
@@ -225,7 +181,7 @@ export default function ActionItemsPage() {
             {verifiedCount} Verified
           </span>
           <span className="ml-auto text-xs text-muted-foreground">
-            {completionRate}% verified
+            {completionRate}% complete
           </span>
         </div>
 
@@ -245,14 +201,16 @@ export default function ActionItemsPage() {
               >
                 Go to Feedback Board
               </button>
-              <button
-                onClick={() => setShowNewModal(true)}
-                data-testid="actions-empty-new-btn"
-                className="flex items-center gap-2 bg-primary text-primary-foreground hover:bg-primary/90 font-medium px-4 py-2 rounded-md text-sm transition-colors"
-              >
-                <Plus className="w-4 h-4" />
-                New Action Item
-              </button>
+              {currentUser?.isAdmin && (
+                <button
+                  onClick={() => setShowNewModal(true)}
+                  data-testid="actions-empty-new-btn"
+                  className="flex items-center gap-2 bg-primary text-primary-foreground hover:bg-primary/90 font-medium px-4 py-2 rounded-md text-sm transition-colors"
+                >
+                  <Plus className="w-4 h-4" />
+                  New Action Item
+                </button>
+              )}
             </div>
           </div>
         ) : (
@@ -272,7 +230,6 @@ export default function ActionItemsPage() {
 
         <NewActionItemModal
           open={showNewModal}
-          sprintId={sprint?._id ?? ''}
           users={users}
           onClose={() => setShowNewModal(false)}
           onSubmit={handleCreateAction}

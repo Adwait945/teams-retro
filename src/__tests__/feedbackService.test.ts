@@ -35,7 +35,7 @@ function makeFeedbackItem(overrides: Partial<FeedbackItem> = {}): FeedbackItem {
     suggestion: '',
     authorId: 'user-1',
     isAnonymous: false,
-    sprintId: 'sprint-1',
+    actionItemIds: [],
     upvotedBy: [],
     upvotes: 0,
     createdAt: new Date().toISOString(),
@@ -94,12 +94,12 @@ describe('getAuthorDisplay', () => {
 // ──────────────────────────────────────────────────────────────
 
 describe('GET /api/feedback', () => {
-  it('FS-5: returns 200 + array for sprintId + category filter', async () => {
+  it('FS-5: returns 200 + array for category filter', async () => {
     mockFind.mockResolvedValue([
-      makeFeedbackItem({ sprintId: 'sprint-1', category: 'went-well' }),
-      makeFeedbackItem({ sprintId: 'sprint-1', category: 'went-well', upvotes: 5 }),
+      makeFeedbackItem({ category: 'went-well' }),
+      makeFeedbackItem({ category: 'went-well', upvotes: 5 }),
     ])
-    const req = new NextRequest('http://localhost/api/feedback?sprintId=sprint-1&category=went-well')
+    const req = new NextRequest('http://localhost/api/feedback?category=went-well')
     const res = await GET(req)
     expect(res.status).toBe(200)
     const body = await res.json()
@@ -118,7 +118,6 @@ describe('POST /api/feedback', () => {
         content: 'Great sprint!',
         suggestion: '',
         isAnonymous: false,
-        sprintId: 'sprint-1',
         authorId: 'user-1',
       }),
       headers: { 'Content-Type': 'application/json' },
@@ -136,7 +135,6 @@ describe('POST /api/feedback', () => {
         content: 'Auth service crashed staging.',
         suggestion: '',
         isAnonymous: false,
-        sprintId: 'sprint-1',
         authorId: 'user-1',
       }),
       headers: { 'Content-Type': 'application/json' },
@@ -159,7 +157,6 @@ describe('POST /api/feedback', () => {
         content: 'Auth service crashed staging.',
         suggestion: 'Roll back to v1.8 until memory leak is patched.',
         isAnonymous: false,
-        sprintId: 'sprint-1',
         authorId: 'user-1',
       }),
       headers: { 'Content-Type': 'application/json' },

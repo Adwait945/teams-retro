@@ -44,10 +44,10 @@ jest.mock('@/components/layout/Shell', () => ({
 
 import DashboardPage from '@/app/dashboard/page'
 import FeedbackPage from '@/app/feedback/page'
-import ActionsPage from '@/app/actions/page'
+import ActionsPage from '@/app/action-items/page'
 import SubmitFeedbackModal from '@/components/SubmitFeedbackModal'
 import NewActionItemModal from '@/components/NewActionItemModal'
-import ConvertActionModal from '@/components/ConvertActionModal'
+import ConvertToActionModal from '@/components/ConvertToActionModal'
 import VerifyImpactModal from '@/components/VerifyImpactModal'
 import type { ActionItem } from '@/types'
 import { getCurrentUser } from '@/services/userService'
@@ -193,7 +193,6 @@ it('EH-6: SubmitFeedbackModal — submit disabled when content empty; enabled af
       open={true}
       onClose={mockOnClose}
       onSubmit={mockOnSubmit}
-      sprintId="sp-1"
     />
   )
 
@@ -218,7 +217,6 @@ it('EH-7: SubmitFeedbackModal — role="dialog" and aria-labelledby present', ()
       open={true}
       onClose={jest.fn()}
       onSubmit={jest.fn()}
-      sprintId="sp-1"
     />
   )
   expect(screen.getByRole('dialog')).toBeInTheDocument()
@@ -232,7 +230,6 @@ it('EH-8: NewActionItemModal — role="dialog" and Sprint 5 testids present', ()
   render(
     <NewActionItemModal
       open={true}
-      sprintId="sp-1"
       users={[{ _id: 'u1', name: 'Jane Doe' }]}
       onClose={jest.fn()}
       onSubmit={jest.fn()}
@@ -248,10 +245,9 @@ it('EH-8: NewActionItemModal — role="dialog" and Sprint 5 testids present', ()
 
 // ─── EH-9: ConvertActionModal — role="dialog" present ────────────────────────
 
-it('EH-9: ConvertActionModal — role="dialog" and Sprint 5 testids present', () => {
+it('EH-9: ConvertToActionModal — role="dialog" and Sprint 6 testids present', () => {
   const mockFeedback = {
     _id: 'fi-1',
-    sprintId: 'sp-1',
     content: 'We should improve CI pipeline.',
     category: 'should-try' as const,
     authorId: 'u1',
@@ -259,25 +255,24 @@ it('EH-9: ConvertActionModal — role="dialog" and Sprint 5 testids present', ()
     suggestion: '',
     upvotes: 0,
     upvotedBy: [],
+    actionItemIds: [],
     createdAt: '',
   }
 
   render(
-    <ConvertActionModal
+    <ConvertToActionModal
       open={true}
       feedbackItem={mockFeedback}
-      sprintId="sp-1"
       users={[{ _id: 'u1', name: 'Jane Doe' }]}
       onClose={jest.fn()}
       onSubmit={jest.fn()}
     />
   )
   expect(screen.getByRole('dialog')).toBeInTheDocument()
-  expect(screen.getByRole('dialog')).toHaveAttribute('aria-labelledby', 'cam-title')
-  expect(screen.getByTestId('convert-action-modal')).toBeInTheDocument()
-  expect(screen.getByTestId('cam-close-btn')).toBeInTheDocument()
-  expect(screen.getByTestId('cam-title-input')).toBeInTheDocument()
-  expect(screen.getByTestId('cam-owner')).toBeInTheDocument()
+  expect(screen.getByRole('dialog')).toHaveAttribute('aria-labelledby', 'cta-title')
+  expect(screen.getByTestId('convert-to-action-modal')).toBeInTheDocument()
+  expect(screen.getByTestId('convert-title-input')).toBeInTheDocument()
+  expect(screen.getByTestId('convert-owner-select')).toBeInTheDocument()
 })
 
 // ─── EH-10: VerifyImpactModal — role="dialog" present ────────────────────────
@@ -290,7 +285,6 @@ it('EH-10: VerifyImpactModal — role="dialog" and Sprint 5 testids present', ()
     ownerId: 'u1',
     dueDate: '',
     status: 'completed',
-    sprintId: 'sp-1',
     sourceFeedbackId: '',
     sourceQuote: '',
     impactNote: '',

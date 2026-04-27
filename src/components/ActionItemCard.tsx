@@ -24,13 +24,18 @@ const STATUS_COLOR: Record<ActionItem['status'], string> = {
   'verified': 'bg-purple-500/20 text-purple-400',
 }
 
-export default function ActionItemCard({ item, ownerName, onAdvance, onRegress, onVerify }: ActionItemCardProps) {
-  const today = new Date().toISOString().slice(0, 10)
-  const dueDateStr = item.dueDate ? item.dueDate.slice(0, 10) : ''
-  const dueDateLabel = dueDateStr === today ? 'Due Today' : dueDateStr ? 'Due This Sprint' : ''
+function getDueDateLabel(dueDate: string | null | undefined): { text: string; className: string } {
+  if (!dueDate) return { text: 'No due date', className: 'text-muted-foreground' }
+  const now = new Date()
+  const due = new Date(dueDate)
+  const diffDays = Math.ceil((due.getTime() - now.getTime()) / (1000 * 60 * 60 * 24))
+  if (diffDays < 0) return { text: 'Overdue', className: 'text-red-600 font-medium' }
+  if (diffDays === 0) return { text: 'Due today', className: 'text-amber-600 font-medium' }
+  return { text: `Due in ${diffDays} days`, className: 'text-muted-foreground' }
+}
 
-  const showSourceFeedback = item.sourceFeedbackId !== '' && item.sourceQuote !== ''
-  const showImpactNote = item.status === 'verified' && !!item.impactNote
+export default function ActionItemCard({ item, ownerName, onAdvance, onRegress, onVerify }: ActionItemCardProps) {
+  const dueDateInfo = getDueDateLabel(item.dueDate)
 
   return (
     <div className="retro-card p-4 border border-border/50 rounded-lg bg-secondary/20 space-y-3">
@@ -47,23 +52,24 @@ export default function ActionItemCard({ item, ownerName, onAdvance, onRegress, 
         <p className="text-xs text-slate-400 leading-relaxed">{item.description}</p>
       )}
 
-      {/* Source feedback block */}
-      {showSourceFeedback && (
-        <div className="bg-secondary/50 rounded p-2.5 border border-border/40">
-          <div className="text-[10px] font-semibold uppercase tracking-wider text-muted-foreground mb-1">
-            Source Feedback
-          </div>
-          <p className="text-xs text-slate-300 italic">&ldquo;{item.sourceQuote}&rdquo;</p>
+      {/* Source quote block — blue inset */}
+      {item.sourceQuote && (
+        <div
+          data-testid="source-quote-block"
+          className="bg-blue-50 border-l-4 border-blue-400 text-blue-800 text-sm px-3 py-2 rounded-r-md my-2"
+        >
+          &ldquo;{item.sourceQuote}&rdquo;
         </div>
       )}
 
-      {/* Impact note block */}
-      {showImpactNote && (
-        <div className="bg-purple-500/10 rounded p-2.5 border border-purple-500/30">
-          <div className="text-[10px] font-semibold uppercase tracking-wider text-purple-400 mb-1">
-            Verified Impact
-          </div>
-          <p className="text-xs text-slate-300">{item.impactNote}</p>
+      {/* Impact note block — emerald inset */}
+      {item.status === 'verified' && item.impactNote && (
+        <div
+          data-testid="impact-note-block"
+          className="bg-emerald-50 border-l-4 border-emerald-400 text-emerald-800 text-sm px-3 py-2 rounded-r-md my-2"
+        >
+          <span className="font-semibold text-xs uppercase tracking-wide block mb-1">Impact</span>
+          {item.impactNote}
         </div>
       )}
 
@@ -76,21 +82,19 @@ export default function ActionItemCard({ item, ownerName, onAdvance, onRegress, 
           </div>
           <span className="text-xs text-muted-foreground">{ownerName}</span>
           {/* Due date label */}
-          {dueDateLabel && (
-            <span className="text-[10px] font-medium text-amber-400 bg-amber-500/10 px-1.5 py-0.5 rounded">
-              {dueDateLabel}
-            </span>
-          )}
+          <span data-testid="due-date-label" className={`text-[10px] font-medium px-1.5 py-0.5 rounded ${dueDateInfo.className}`}>
+            {dueDateInfo.text}
+          </span>
         </div>
 
         <div className="flex items-center gap-2">
-          {(item.status === 'in-progress' || item.status === 'completed') && (
+          {item.status !== 'verified' && item.status !== 'open' && (
             <button
               onClick={() => onRegress(item._id)}
               data-testid="regress-btn"
               className="text-xs font-medium px-2.5 py-1 rounded bg-slate-500/20 text-slate-400 hover:bg-slate-500/30 transition-colors"
             >
-              Move Back
+              ← Regress
             </button>
           )}
           {(item.status === 'open' || item.status === 'in-progress') && (

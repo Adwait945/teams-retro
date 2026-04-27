@@ -13,7 +13,6 @@ interface SubmitFeedbackModalProps {
     suggestion: string
     isAnonymous: boolean
   }) => Promise<void>
-  sprintId: string
 }
 
 const RADIO_OPTIONS: { value: FeedbackCategory; label: string; colorClass: string }[] = [
