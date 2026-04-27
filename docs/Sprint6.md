@@ -100,6 +100,8 @@ The app transitions from a sprint-gated model to an always-on continuous improve
 | AC-6.4.10 | Anonymous feedback feed entries show: "New feedback in '[Category]'" — no name |
 | AC-6.4.11 | Action item status change feed entries show: "[Title] moved to [Status]" — no actor name |
 | AC-6.4.12 | Upvote events do NOT appear in the activity feed |
+
+> **Implementation note**: Action item status change events in the activity feed must never include the name of the user who triggered the status change. The feed entry format is strictly: "[Action Item Title] moved to [New Status]". If the API response for status change operations includes the actor's identity, the dashboard must strip it before rendering.
 | AC-6.4.13 | The dashboard no longer references sprint name, sprint status, or "No active sprint" state |
 | AC-6.4.14 | The sidebar no longer shows a sprint name — it shows the pod name instead |
 | AC-6.4.15 | If no data exists for the selected window, each metric shows 0 and the activity feed shows "No activity yet" |
@@ -126,6 +128,7 @@ The app transitions from a sprint-gated model to an always-on continuous improve
 | AC-6.5.7 | A user cannot upvote their own feedback card (button disabled; tooltip on hover: "You can't upvote your own feedback") |
 | AC-6.5.8 | The upvote toggle correctly adds on first click and removes on second click for all users |
 | AC-6.5.9 | Anonymous feedback cards show "Anonymous" as author to all users including admin |
+| AC-6.5.10 | There is no UI control or API endpoint to change the `isAnonymous` flag after feedback is submitted. The anonymous/named choice is permanent at submission time. |
 
 ---
 
@@ -140,14 +143,16 @@ The app transitions from a sprint-gated model to an always-on continuous improve
 | AC-6.6.1 | A "→ Action" button appears on every feedback card **only** for admin users |
 | AC-6.6.2 | Non-admin users never see the "→ Action" button regardless of upvote count |
 | AC-6.6.3 | Clicking "→ Action" opens a modal pre-filled: `title` = feedback `content`, `description` = feedback `suggestion` (if category is "Slowed Us Down"), `sourceFeedbackId` = feedback `_id`, `sourceQuote` = feedback `content` |
-| AC-6.6.4 | For "Went Well" and "Should Try" feedback, `description` is pre-filled empty (suggestion field does not apply) |
+| AC-6.6.4 | For "Went Well" feedback, `description` is pre-filled empty. For "Should Try" feedback, if a `suggestion` field exists and is non-empty, `description` is pre-filled with it; otherwise `description` is pre-filled empty. The `suggestion` → `description` pre-fill applies to any category that has a non-empty suggestion, not only "Slowed Us Down." |
 | AC-6.6.5 | The modal includes an owner dropdown populated from all users in the current pod via `GET /api/users?pod=X` |
-| AC-6.6.6 | The modal includes a due date picker (date input, required) |
+| AC-6.6.6 | The modal includes a due date picker (date input, optional). If no due date is set, the action item's `dueDate` field is stored as `null` and the card displays "No due date" instead of a relative date label. |
 | AC-6.6.7 | Submitting the modal creates a new action item via `POST /api/actions` with `sourceFeedbackId`, `sourceQuote`, `ownerId`, `title`, `description`, `dueDate` |
 | AC-6.6.8 | After successful creation, the feedback card displays a badge showing the action item count: "1 action" or "N actions" |
 | AC-6.6.9 | If admin clicks "→ Action" on a card that already has action items, a confirmation appears: "This feedback already has N action item(s). Create another?" with Confirm / Cancel options |
 | AC-6.6.10 | The `FeedbackItem` document's `actionItemIds` array is updated to include the new action item `_id` after creation |
 | AC-6.6.11 | `POST /api/actions` no longer requires or accepts `sprintId` in the request body |
+| AC-6.6.12 | When converting anonymous feedback, the convert modal does NOT display the original author's name — the modal shows "Anonymous" as the source author |
+| AC-6.6.13 | The created action item's `sourceQuote` contains only the feedback content text — it never includes the author's name or identity |
 
 #### Out of Scope
 - Non-admin conversion flow (deferred to Scope 3 — democratic conversion with "proposed" state)
@@ -167,8 +172,8 @@ The app transitions from a sprint-gated model to an always-on continuous improve
 | AC-6.7.3 | Action item cards with `sourceQuote` show the source quote in a **blue inset block** |
 | AC-6.7.4 | Action item cards without `sourceQuote` (standalone) do not show a source quote block |
 | AC-6.7.5 | Action item cards with status `verified` show the `impactNote` in an **emerald/green inset block**, always visible (no click/hover required) |
-| AC-6.7.6 | The due date displays as a relative label: "Due in N days" (future) or "Overdue" (past) |
-| AC-6.7.7 | Admin users see a "+ New Action Item" button that opens a creation modal with: `title` (required), `description` (optional), owner dropdown, due date picker |
+| AC-6.7.6 | The due date displays as a relative label: "Due in N days" (future), "Overdue" (past), or "No due date" (null). The label uses a warning color for overdue items. |
+| AC-6.7.7 | Admin users see a "+ New Action Item" button that opens a creation modal with: `title` (required), `description` (optional), owner dropdown, due date picker (optional) |
 | AC-6.7.8 | Standalone action items created from this modal have `sourceFeedbackId: null` and `sourceQuote: null` |
 | AC-6.7.9 | Status advance and regress buttons function as before; `verified` cannot be regressed |
 | AC-6.7.10 | Advancing to `completed` writes `completedAt` timestamp on the action item document |
@@ -234,9 +239,13 @@ The app transitions from a sprint-gated model to an always-on continuous improve
 | Update `POST /api/actions` | Remove `sprintId`; add `sourceFeedbackId`, `sourceQuote` as optional | ~−5 / +5 |
 | Add `DELETE /api/feedback/[id]` | Admin-only delete route with 403 guard | ~30 |
 | Update `PATCH /api/actions/[id]/advance` | Write `completedAt` when transitioning to `completed` | ~+5 |
-| Update `PATCH /api/actions/[id]/regress` | Clear `completedAt` when regressing from `completed` | ~+5 |
-| Update `PATCH /api/feedback/[id]/upvote` | No sprint check needed — verify still works | ~0 |
+| Fix `PATCH /api/actions/[id]/regress` — rewrite transition logic (Bug B2) | `src/app/api/actions/[id]/regress/route.ts` | ~25 |
+| Fix `PATCH /api/feedback/[id]/upvote` toggle (Bug B1) | `src/app/api/feedback/[id]/upvote/route.ts` | ~15 |
 | **Gate**: `corepack yarn build` 0 errors | | |
+
+> **Bug B1 detail**: Upvote route currently only handles "add." Must check if `currentUserId` is already in `upvotedBy[]`. If yes → remove + decrement `upvotes`. If no → add + increment `upvotes`. Frontend visual toggle via `hasUpvoted` is already correct — backend-only fix.
+
+> **Bug B2 detail**: Regress route is broken (returns 500). Rewrite to support: `in-progress → open`, `completed → in-progress`. Reject regress from `verified` (400: "Verified actions cannot be regressed"). When regressing from `completed`, clear `completedAt`. When regressing from `in-progress`, no additional field changes.
 
 ### Session 2 — Dashboard + Feedback Board + Shell
 **Goal**: Dashboard with time-window toggle, feedback board without sprint guards, shell updated.
@@ -303,9 +312,10 @@ The app transitions from a sprint-gated model to an always-on continuous improve
 | 13 | Click "→ Action" on a feedback card | Convert modal opens pre-filled |
 | 14 | Submit convert modal | Action created; badge "1 action" appears on card |
 | 15 | Click "→ Action" on same card again | Confirmation prompt: "already has 1 action item. Create another?" |
+| 15a | Admin: click "→ Action" on an anonymous feedback card | Convert modal opens; shows "Anonymous" as source — no author name revealed |
 | 16 | Navigate to `/action-items` | Actions listed; source quote shown in blue inset |
 | 17 | Advance an action to Completed | `completedAt` set; card shows Completed status |
-| 18 | Verify an action with impact note | Status = Verified; emerald inset with note always visible |
+| 18 | Click "Verify Impact", enter statement, save | Status = Verified; emerald inset with note always visible |
 | 19 | Regress an In-Progress action | Status moves back to Open |
 | 20 | Attempt to regress a Verified action | Button absent or disabled |
 | 21 | Admin: click "+ New Action Item" on actions page | Modal opens with empty form |
