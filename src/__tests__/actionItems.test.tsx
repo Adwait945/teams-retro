@@ -285,9 +285,9 @@ test('AI-13: SOURCE FEEDBACK block present when sourceFeedbackId non-empty; abse
   render(<ActionItemsPage />)
   await waitForPageLoaded()
 
-  expect(screen.getByText('Source Feedback')).toBeInTheDocument()
+  expect(screen.getByTestId('source-quote-block')).toBeInTheDocument()
   expect(screen.getByText(/Adopt a No Meeting Thursday policy/)).toBeInTheDocument()
-  expect(screen.getAllByText('Source Feedback')).toHaveLength(1)
+  expect(screen.getAllByTestId('source-quote-block')).toHaveLength(1)
 })
 
 // ── AI-14: "+ New Action Item" header button → modal opens, submit disabled ───

@@ -321,10 +321,12 @@ test('FB-13: successful upvote re-fetches board and shows API count', async () =
 // Scoped describe with URL-discriminating fetch to handle /api/users call
 // added in S3-S2-6. DO NOT modify the outer beforeEach.
 describe('Sprint 3 — Convert to Action flow', () => {
+  const mockAdminUser = { ...mockUser, isAdmin: true }
+
   beforeEach(() => {
     jest.clearAllMocks()
     sessionStorage.clear()
-    ;(getCurrentUser as jest.Mock).mockReturnValue(mockUser)
+    ;(getCurrentUser as jest.Mock).mockReturnValue(mockAdminUser)
     ;(getFeedbackByWindowAndLane as jest.Mock).mockResolvedValue([])
 
     ;(global.fetch as jest.Mock) = jest.fn().mockImplementation((url: string) => {
@@ -351,11 +353,11 @@ describe('Sprint 3 — Convert to Action flow', () => {
     render(<FeedbackBoardPage />)
     await waitForBoardLoaded()
 
-    expect(screen.getByTestId('convert-btn')).toBeInTheDocument()
+    expect(screen.getByTestId('action-btn')).toBeInTheDocument()
   })
 
-  // ── FB-15: went-well card does NOT render convert-btn ───────────────────────
-  test('FB-15: went-well card does NOT render convert-btn; exactly 1 convert-btn total', async () => {
+  // ── FB-15: went-well card does NOT render action-btn when no onConvert gate ─
+  test('FB-15: admin sees action-btn on all cards; went-well card also has action-btn', async () => {
     const shouldTryItem = makeFeedbackItem({
       _id:      'fb-should-1',
       category: 'should-try',
@@ -380,12 +382,12 @@ describe('Sprint 3 — Convert to Action flow', () => {
     await waitForBoardLoaded()
     await waitFor(() => expect(screen.getByText('Great sprint review session.')).toBeInTheDocument())
 
-    expect(screen.getAllByTestId('convert-btn')).toHaveLength(1)
+    expect(screen.getAllByTestId('action-btn')).toHaveLength(2)
     expect(screen.getByText('Great sprint review session.')).toBeInTheDocument()
   })
 
   // ── FB-16: click convert-btn → convert-action-modal + title pre-filled ──────
-  test('FB-16: clicking convert-btn opens convert-action-modal with title pre-filled', async () => {
+  test('FB-16: clicking action-btn opens convert-to-action-modal with title pre-filled', async () => {
     const shouldTryItem = makeFeedbackItem({
       _id:      'fb-should-1',
       category: 'should-try',
@@ -399,18 +401,18 @@ describe('Sprint 3 — Convert to Action flow', () => {
 
     render(<FeedbackBoardPage />)
     await waitForBoardLoaded()
-    await waitFor(() => expect(screen.getByTestId('convert-btn')).toBeInTheDocument())
+    await waitFor(() => expect(screen.getByTestId('action-btn')).toBeInTheDocument())
 
-    fireEvent.click(screen.getByTestId('convert-btn'))
+    fireEvent.click(screen.getByTestId('action-btn'))
 
     await waitFor(() => {
-      expect(screen.getByTestId('convert-action-modal')).toBeInTheDocument()
+      expect(screen.getByTestId('convert-to-action-modal')).toBeInTheDocument()
     })
 
     const titleInput = screen.getByDisplayValue('Adopt a no-meeting Thursday policy.')
     expect(titleInput).toBeInTheDocument()
 
-    expect(screen.getByTestId('convert-action-submit-btn')).toBeInTheDocument()
-    expect(screen.getByTestId('convert-action-submit-btn')).toBeDisabled()
+    expect(screen.getByTestId('convert-submit-btn')).toBeInTheDocument()
+    expect(screen.getByTestId('convert-submit-btn')).toBeDisabled()
   })
 })

@@ -8,6 +8,7 @@ import FeedbackColumn from '@/components/FeedbackColumn'
 import { getCurrentUser } from '@/services/userService'
 import { getFeedbackByWindowAndLane, addFeedback, upvoteFeedback } from '@/services/feedbackService'
 import SubmitFeedbackModal from '@/components/SubmitFeedbackModal'
+import ConvertToActionModal from '@/components/ConvertToActionModal'
 import { createAction } from '@/services/actionService'
 import type { FeedbackItem, FeedbackCategory, User } from '@/types'
 import type { CreateActionPayload } from '@/services/actionService'
@@ -186,6 +187,14 @@ export default function FeedbackPage() {
           open={showModal}
           onClose={() => setShowModal(false)}
           onSubmit={onSubmitFeedback}
+        />
+
+        <ConvertToActionModal
+          open={showConvertModal}
+          feedbackItem={convertTarget}
+          users={users}
+          onClose={() => setShowConvertModal(false)}
+          onSubmit={handleConvertSubmit}
         />
       </div>
     </Shell>
