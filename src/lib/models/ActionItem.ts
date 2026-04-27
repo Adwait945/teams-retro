@@ -2,7 +2,6 @@ import mongoose from 'mongoose'
 import type { ActionItem } from '@/types'
 
 const ActionItemSchema = new mongoose.Schema({
-  sprintId: { type: String, required: true },
   title: { type: String, required: true },
   description: { type: String },
   ownerId: { type: String, required: true },

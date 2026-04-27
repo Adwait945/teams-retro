@@ -6,7 +6,7 @@ const mockPush = jest.fn()
 
 jest.mock('next/navigation', () => ({
   useRouter: () => ({ push: mockPush }),
-  usePathname: () => '/actions',
+  usePathname: () => '/action-items',
 }))
 
 jest.mock('@/services/userService', () => ({
@@ -34,7 +34,7 @@ jest.mock('@/components/layout/Shell', () => ({
   ),
 }))
 
-import ActionItemsPage from '@/app/actions/page'
+import ActionItemsPage from '@/app/action-items/page'
 import { getCurrentUser } from '@/services/userService'
 import {
   getActions,
@@ -48,7 +48,7 @@ const mockUser = {
   name:      'Jane Doe',
   username:  'jdoe',
   pod:       'pod1',
-  isAdmin:   false,
+  isAdmin:   true,
   createdAt: '2026-04-01T00:00:00.000Z',
 }
 
@@ -70,7 +70,6 @@ function makeActionItem(overrides: Partial<ActionItem> = {}): ActionItem {
     ownerId:          'user-1',
     sourceFeedbackId: '',
     sourceQuote:      '',
-    sprintId:         'sprint-1',
     status:           'open',
     dueDate:          '',
     createdAt:        new Date().toISOString(),

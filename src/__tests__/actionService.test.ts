@@ -45,7 +45,6 @@ function makeAction(status: ActionItem['status']): ActionItem {
     ownerId: 'u1',
     sourceFeedbackId: '',
     sourceQuote: '',
-    sprintId: 's1',
     status,
     dueDate: '',
     createdAt: new Date().toISOString(),
@@ -74,6 +73,7 @@ test('getCompletionRate: 2 completed + 1 verified / 5 = 60%', () => {
   expect(getCompletionRate(actions)).toBe(60)
 })
 
+
 test('getOpenCount: counts open and in-progress', () => {
   const actions = [makeAction('open'), makeAction('in-progress'), makeAction('completed')]
   expect(getOpenCount(actions)).toBe(2)
@@ -97,7 +97,6 @@ function makeActionItem(overrides: Partial<ActionItem> = {}): ActionItem {
     ownerId: 'user-1',
     sourceFeedbackId: '',
     sourceQuote: '',
-    sprintId: 'sprint-1',
     status: 'open',
     dueDate: '',
     createdAt: new Date().toISOString(),
@@ -131,8 +130,8 @@ describe('getActionsByStatus', () => {
   })
 })
 
-describe('getCompletionRate Sprint 3 (verified-only)', () => {
-  test('AS-3: 2 verified out of 5 total = 40', () => {
+describe('getCompletionRate Sprint 6 (completed+verified)', () => {
+  test('AS-3: 2 verified + 1 completed out of 5 total = 60', () => {
     const items = [
       makeActionItem({ status: 'verified' }),
       makeActionItem({ status: 'verified' }),
@@ -140,7 +139,7 @@ describe('getCompletionRate Sprint 3 (verified-only)', () => {
       makeActionItem({ status: 'in-progress' }),
       makeActionItem({ status: 'open' }),
     ]
-    expect(getCompletionRate(items)).toBe(40)
+    expect(getCompletionRate(items)).toBe(60)
   })
 })
 
@@ -151,8 +150,8 @@ describe('GET /api/actions', () => {
 
   test('AS-4: with sprintId returns 200 + array', async () => {
     mockFindAction.mockResolvedValue([
-      makeActionItem({ sprintId: 'sprint-1', status: 'open' }),
-      makeActionItem({ sprintId: 'sprint-1', status: 'in-progress' }),
+      makeActionItem({ status: 'open' }),
+      makeActionItem({ status: 'in-progress' }),
     ])
     const req = new NextRequest('http://localhost/api/actions?sprintId=sprint-1')
     const res = await GET(req)
@@ -162,12 +161,13 @@ describe('GET /api/actions', () => {
     expect(body.length).toBe(2)
   })
 
-  test('AS-5: no sprintId returns 400', async () => {
+  test('AS-5: no params returns 200 (all items)', async () => {
+    mockFindAction.mockResolvedValue([])
     const req = new NextRequest('http://localhost/api/actions')
     const res = await GET(req)
-    expect(res.status).toBe(400)
+    expect(res.status).toBe(200)
     const body = await res.json()
-    expect(typeof body.error).toBe('string')
+    expect(Array.isArray(body)).toBe(true)
   })
 })
 

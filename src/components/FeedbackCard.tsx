@@ -1,5 +1,6 @@
 "use client"
 
+import { useState } from 'react'
 import { ThumbsUp, User } from 'lucide-react'
 import type { FeedbackItem, FeedbackCategory } from '@/types'
 import { getAuthorDisplay } from '@/services/feedbackService'
@@ -16,13 +17,16 @@ interface FeedbackCardProps {
   currentUserId: string
   onUpvote: () => void
   onConvert?: (item: FeedbackItem) => void
+  isAdmin: boolean
 }
 
-export default function FeedbackCard({ item, authorName, currentUserId, onUpvote, onConvert }: FeedbackCardProps) {
+export default function FeedbackCard({ item, authorName, currentUserId, onUpvote, onConvert, isAdmin }: FeedbackCardProps) {
+  const [showConfirm, setShowConfirm] = useState(false)
   const hasUpvoted = item.upvotedBy?.includes(currentUserId)
   const borderClass = BORDER_CLASS[item.category]
   const displayName = getAuthorDisplay(item, authorName)
   const isAnon = item.isAnonymous
+  const isOwnCard = item.authorId === currentUserId
 
   return (
     <div className={`retro-card p-4 ${borderClass} group`}>
@@ -49,16 +53,27 @@ export default function FeedbackCard({ item, authorName, currentUserId, onUpvote
             </div>
           )}
           <span className="text-xs text-muted-foreground">{displayName}</span>
+          {item.actionItemIds && item.actionItemIds.length > 0 && (
+            <span data-testid="action-badge" className="text-xs bg-blue-100 text-blue-700 px-2 py-0.5 rounded-full">
+              {item.actionItemIds.length === 1 ? '1 action' : `${item.actionItemIds.length} actions`}
+            </span>
+          )}
         </div>
 
         <div className="flex items-center gap-2">
-          {item.category === 'should-try' && onConvert && (
+          {isAdmin && onConvert && (
             <button
-              onClick={() => onConvert(item)}
-              data-testid="convert-btn"
+              onClick={() => {
+                if (item.actionItemIds && item.actionItemIds.length > 0) {
+                  setShowConfirm(true)
+                } else {
+                  onConvert(item)
+                }
+              }}
+              data-testid="action-btn"
               className="text-xs font-medium px-2.5 py-1 rounded bg-amber-500/20 text-amber-400 hover:bg-amber-500/30 transition-colors"
             >
-              Convert to Action
+              → Action
             </button>
           )}
           <button
@@ -68,6 +83,8 @@ export default function FeedbackCard({ item, authorName, currentUserId, onUpvote
                 : 'bg-secondary/50 hover:bg-secondary text-muted-foreground'
             }`}
             onClick={onUpvote}
+            disabled={isOwnCard}
+            title={isOwnCard ? "You can't upvote your own feedback" : undefined}
             aria-label={hasUpvoted ? 'Remove upvote' : 'Upvote'}
             data-testid="upvote-btn"
           >
@@ -76,6 +93,28 @@ export default function FeedbackCard({ item, authorName, currentUserId, onUpvote
           </button>
         </div>
       </div>
+
+      {showConfirm && (
+        <div data-testid="confirm-prompt" className="mt-2 p-3 rounded-md bg-amber-50 border border-amber-200 text-sm">
+          <p>This feedback already has {item.actionItemIds.length} action item(s). Create another?</p>
+          <div className="flex gap-2 mt-2">
+            <button
+              data-testid="confirm-prompt-confirm"
+              onClick={() => { setShowConfirm(false); onConvert?.(item) }}
+              className="px-3 py-1 rounded bg-primary text-primary-foreground text-xs font-medium"
+            >
+              Confirm
+            </button>
+            <button
+              data-testid="confirm-prompt-cancel"
+              onClick={() => setShowConfirm(false)}
+              className="px-3 py-1 rounded bg-secondary text-xs font-medium"
+            >
+              Cancel
+            </button>
+          </div>
+        </div>
+      )}
     </div>
   )
 }

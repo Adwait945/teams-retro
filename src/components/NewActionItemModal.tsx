@@ -7,7 +7,6 @@ import type { CreateActionPayload } from '@/services/actionService'
 
 interface NewActionItemModalProps {
   open: boolean
-  sprintId: string
   users: Pick<User, '_id' | 'name'>[]
   onClose: () => void
   onSubmit: (payload: CreateActionPayload) => Promise<void>
@@ -15,7 +14,6 @@ interface NewActionItemModalProps {
 
 export default function NewActionItemModal({
   open,
-  sprintId,
   users,
   onClose,
   onSubmit,
@@ -79,10 +77,7 @@ export default function NewActionItemModal({
         title,
         description,
         ownerId,
-        dueDate,
-        sourceFeedbackId: '',
-        sourceQuote: '',
-        sprintId,
+        dueDate: dueDate || null,
       })
       handleClose()
     } finally {

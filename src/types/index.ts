@@ -28,11 +28,10 @@ export interface FeedbackItem {
   suggestion: string
   authorId: string
   isAnonymous: boolean
-  sprintId: string
   upvotedBy: string[]
   upvotes: number
   createdAt: string
-  actionItemId?: string
+  actionItemIds: string[]
 }
 
 export interface ActionItem {
@@ -40,24 +39,13 @@ export interface ActionItem {
   title: string
   description: string
   ownerId: string
-  sourceFeedbackId: string
-  sourceQuote: string
-  sprintId: string
+  sourceFeedbackId?: string
+  sourceQuote?: string
   status: "open" | "in-progress" | "completed" | "verified"
   dueDate: string
   createdAt: string
   completedAt?: string
   impactNote?: string
-}
-
-export interface Sprint {
-  _id: string
-  name: string
-  goal: string
-  startDate: string
-  endDate: string
-  status: "open" | "closed"
-  teamMemberIds: string[]
 }
 
 export interface PointEvent {
@@ -67,7 +55,6 @@ export interface PointEvent {
   points: number
   description: string
   timestamp: string
-  sprintId: string
 }
 
 export type PointAction =
