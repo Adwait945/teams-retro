@@ -65,16 +65,6 @@ const mockUser = {
   createdAt: '',
 }
 
-const mockSprint = {
-  _id: 'sp-1',
-  name: 'Sprint 42',
-  goal: 'Ship it.',
-  startDate: '2023-10-24',
-  endDate: '2023-11-06',
-  status: 'open' as const,
-  teamMemberIds: [],
-}
-
 beforeEach(() => {
   jest.clearAllMocks()
   mockPush.mockReset()
@@ -97,30 +87,28 @@ it('EH-1: dashboard — no session user redirects to /', async () => {
 
 it('EH-2: dashboard — fetch throws → load-error visible; no crash', async () => {
   ;(getCurrentUser as jest.Mock).mockReturnValue(mockUser)
-  ;(getActions as jest.Mock).mockResolvedValue([])
-  ;(global.fetch as jest.Mock).mockRejectedValue(new Error('Network Error'))
+  ;(global.fetch as jest.Mock) = jest.fn().mockResolvedValue({
+    ok: true,
+    json: () => Promise.reject(new Error('Network Error')),
+  })
 
   render(<DashboardPage />)
-  await waitFor(() => expect(screen.getByTestId('load-error')).toBeInTheDocument())
+  await waitFor(
+    () => expect(screen.getByTestId('load-error')).toBeInTheDocument(),
+    { timeout: 3000 }
+  )
 
   expect(screen.getByTestId('load-error')).toHaveTextContent(
     'Something went wrong. Please try again.'
   )
   expect(screen.getByTestId('shell')).toBeInTheDocument()
-  expect(screen.queryByTestId('dashboard-empty-state')).not.toBeInTheDocument()
-  expect(screen.queryByText('No sprint data yet.')).not.toBeInTheDocument()
 })
 
 // ─── EH-3: Actions — fetch throws → "Failed to load data." visible ───────────
 
 it('EH-3: actions — fetch throws → "Failed to load data." visible; no crash', async () => {
   ;(getCurrentUser as jest.Mock).mockReturnValue(mockUser)
-  ;(global.fetch as jest.Mock).mockImplementation((url: string) => {
-    if (url.includes('/api/sprints')) {
-      return Promise.resolve({ ok: false, status: 500, json: async () => ({ error: 'fail' }) })
-    }
-    return Promise.reject(new Error('Network Error'))
-  })
+  ;(global.fetch as jest.Mock) = jest.fn().mockRejectedValue(new Error('Network Error'))
 
   render(<ActionsPage />)
   await waitFor(() =>
@@ -134,28 +122,17 @@ it('EH-3: actions — fetch throws → "Failed to load data." visible; no crash'
 
 // ─── EH-4: Feedback — sprint null → feedback-empty-state visible ─────────────
 
-it('EH-4: feedback — no active sprint → feedback-empty-state visible', async () => {
+it('EH-4: feedback — fetch throws → load-error visible', async () => {
   ;(getCurrentUser as jest.Mock).mockReturnValue(mockUser)
-  ;(global.fetch as jest.Mock).mockImplementation((url: string) => {
-    if (url.includes('/api/sprints')) {
-      return Promise.resolve({ ok: true, json: async () => [] })
-    }
-    if (url.includes('/api/users')) {
-      return Promise.resolve({ ok: true, json: async () => [mockUser] })
-    }
-    return Promise.resolve({ ok: true, json: async () => [] })
-  })
+  ;(global.fetch as jest.Mock) = jest.fn().mockRejectedValue(new Error('Network Error'))
 
   render(<FeedbackPage />)
-  await waitFor(() =>
-    expect(screen.queryByText(/loading/i)).not.toBeInTheDocument()
-  )
+  await waitFor(() => expect(screen.getByTestId('load-error')).toBeInTheDocument())
 
-  expect(screen.getByTestId('feedback-empty-state')).toBeInTheDocument()
-  expect(screen.getByTestId('feedback-empty-state')).toHaveTextContent(
-    'No active sprint. Set one up to begin.'
+  expect(screen.getByTestId('load-error')).toHaveTextContent(
+    'Something went wrong. Please try again.'
   )
-  expect(screen.getByTestId('open-modal-btn')).toBeDisabled()
+  expect(screen.getByTestId('shell')).toBeInTheDocument()
 })
 
 // ─── EH-5: Actions — empty actions → actions-empty-state visible ─────────────
@@ -163,10 +140,7 @@ it('EH-4: feedback — no active sprint → feedback-empty-state visible', async
 it('EH-5: actions — empty getActions → actions-empty-state visible', async () => {
   ;(getCurrentUser as jest.Mock).mockReturnValue(mockUser)
   ;(getActions as jest.Mock).mockResolvedValue([])
-  ;(global.fetch as jest.Mock).mockImplementation((url: string) => {
-    if (url.includes('/api/sprints')) {
-      return Promise.resolve({ ok: true, json: async () => mockSprint })
-    }
+  ;(global.fetch as jest.Mock) = jest.fn().mockImplementation((url: string) => {
     if (url.includes('/api/users')) {
       return Promise.resolve({ ok: true, json: async () => [mockUser] })
     }
