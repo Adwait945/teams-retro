@@ -100,11 +100,11 @@ The app transitions from a sprint-gated model to an always-on continuous improve
 | AC-6.4.10 | Anonymous feedback feed entries show: "New feedback in '[Category]'" — no name |
 | AC-6.4.11 | Action item status change feed entries show: "[Title] moved to [Status]" — no actor name |
 | AC-6.4.12 | Upvote events do NOT appear in the activity feed |
-
-> **Implementation note**: Action item status change events in the activity feed must never include the name of the user who triggered the status change. The feed entry format is strictly: "[Action Item Title] moved to [New Status]". If the API response for status change operations includes the actor's identity, the dashboard must strip it before rendering.
 | AC-6.4.13 | The dashboard no longer references sprint name, sprint status, or "No active sprint" state |
 | AC-6.4.14 | The sidebar no longer shows a sprint name — it shows the pod name instead |
 | AC-6.4.15 | If no data exists for the selected window, each metric shows 0 and the activity feed shows "No activity yet" |
+
+> **Implementation note**: Action item status change events in the activity feed must never include the name of the user who triggered the status change. The feed entry format is strictly: "[Action Item Title] moved to [New Status]". If the API response for status change operations includes the actor's identity, the dashboard must strip it before rendering.
 
 #### Out of Scope
 - Per-person contribution metrics (deferred to Scope 3)
