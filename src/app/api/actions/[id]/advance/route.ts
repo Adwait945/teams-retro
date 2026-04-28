@@ -1,6 +1,10 @@
 import { NextRequest, NextResponse } from 'next/server'
 import { connectDB } from '@/lib/db'
 import ActionItemModel from '@/lib/models/ActionItem'
+import PointEventModel from '@/lib/models/PointEvent'
+import { POINT_VALUES } from '@/types'
+import { evaluateBadges } from '@/lib/services/badgeService'
+import { getPodForUser } from '@/lib/utils/getPodForUser'
 
 const ADVANCE_MAP: Record<string, string> = {
   'open': 'in-progress',
@@ -29,6 +33,26 @@ export async function PATCH(
       item.completedAt = new Date()
     }
     await item.save()
+
+    if (nextStatus === 'completed') {
+      ;(async () => {
+        try {
+          const ownerId = String(item.ownerId)
+          const podId = await getPodForUser(ownerId)
+          await PointEventModel.create({
+            userId: ownerId,
+            podId,
+            action: 'complete_action',
+            points: POINT_VALUES.complete_action,
+            referenceId: String(item._id),
+          })
+          await evaluateBadges(ownerId, podId, 'complete_action')
+        } catch (err) {
+          console.error('[PointEvent] complete_action failed:', err)
+        }
+      })()
+    }
+
     return NextResponse.json(item, { status: 200 })
   } catch (err) {
     void err

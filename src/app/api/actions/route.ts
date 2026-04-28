@@ -3,6 +3,10 @@ import { connectDB } from "@/lib/db"
 import ActionItemModel from "@/lib/models/ActionItem"
 import FeedbackItemModel from "@/lib/models/FeedbackItem"
 import { getWindowFilter } from "@/lib/utils/windowFilter"
+import PointEventModel from "@/lib/models/PointEvent"
+import { POINT_VALUES } from "@/types"
+import { evaluateBadges } from "@/lib/services/badgeService"
+import { getPodForUser } from "@/lib/utils/getPodForUser"
 
 export async function GET(req: NextRequest) {
   try {
@@ -42,6 +46,26 @@ export async function POST(req: NextRequest) {
         safeBody.sourceFeedbackId,
         { $push: { actionItemIds: String(action._id) } }
       )
+
+      ;(async () => {
+        try {
+          const feedback = await FeedbackItemModel.findById(safeBody.sourceFeedbackId).lean()
+          if (feedback) {
+            const authorId = String((feedback as Record<string, unknown>).authorId)
+            const podId = await getPodForUser(authorId)
+            await PointEventModel.create({
+              userId: authorId,
+              podId,
+              action: 'convert_action',
+              points: POINT_VALUES.convert_action,
+              referenceId: String(action._id),
+            })
+            await evaluateBadges(authorId, podId, 'convert_action')
+          }
+        } catch (err) {
+          console.error('[PointEvent] convert_action failed:', err)
+        }
+      })()
     }
 
     return NextResponse.json(action, { status: 201 })

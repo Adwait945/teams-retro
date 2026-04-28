@@ -7,7 +7,7 @@ import { registerUser, getCurrentUser, cacheUser, getAllUsers } from "@/services
 
 export default function RegistrationPage() {
   const router = useRouter()
-  const [mode, setMode] = useState<"signin" | "register">("signin")
+  const [mode, setMode] = useState<"signin" | "register">("register")
 
   // Sign-in state
   const [signinUsername, setSigninUsername] = useState("")

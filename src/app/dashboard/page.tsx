@@ -4,6 +4,7 @@ import { useState, useEffect } from "react"
 import { useRouter } from "next/navigation"
 import Shell from "@/components/layout/Shell"
 import { getCurrentUser } from "@/services/userService"
+import { Trophy } from "lucide-react"
 import type { FeedbackItem, ActionItem, User } from "@/types"
 
 const CATEGORY_LABEL: Record<string, string> = {
@@ -58,6 +59,8 @@ export default function DashboardPage() {
   const [isLoading, setIsLoading] = useState(true)
   const [loadError, setLoadError] = useState(false)
   const [currentUser, setCurrentUser] = useState<User | null>(null)
+  const [pointsData, setPointsData] = useState<Array<{ userId: string; total: number }>>([])
+  const [priorFeedback, setPriorFeedback] = useState<FeedbackItem[]>([])
 
   useEffect(() => {
     const user = getCurrentUser()
@@ -87,7 +90,34 @@ export default function DashboardPage() {
       }
     }
     load()
-  }, [activeWindow, router])
+  // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [activeWindow])
+
+  useEffect(() => {
+    if (!currentUser || isLoading || loadError) return
+    async function loadSupplementary() {
+      try {
+        const [ptRes, priorFbRes] = await Promise.all([
+          fetch(`/api/points?pod=${encodeURIComponent(currentUser!.pod)}&window=${activeWindow}`),
+          activeWindow !== 'all'
+            ? fetch(`/api/feedback?window=prior${activeWindow === '7d' ? '7d' : '30d'}`)
+            : Promise.resolve(null),
+        ])
+        const pts = await ptRes.json()
+        setPointsData(Array.isArray(pts) ? pts : [])
+        if (priorFbRes) {
+          const priorFb = await priorFbRes.json()
+          setPriorFeedback(Array.isArray(priorFb) ? priorFb : [])
+        } else {
+          setPriorFeedback([])
+        }
+      } catch {
+        // Non-critical supplementary data — silently fail
+      }
+    }
+    loadSupplementary()
+  // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [currentUser, activeWindow, isLoading, loadError])
 
   const totalFeedback = feedbackItems.length
   const feedbackByCategory = {
@@ -228,6 +258,88 @@ export default function DashboardPage() {
                 ))
             }
           </div>
+        </div>
+
+        {pointsData.length > 0 && (
+          <div className="rounded-xl border border-amber-200 bg-amber-50 p-4 flex items-center gap-4">
+            <Trophy className="h-8 w-8 text-amber-500 flex-shrink-0" />
+            <div>
+              <p className="text-xs text-amber-600 font-medium uppercase tracking-wide">Pod MVP</p>
+              <p className="text-lg font-bold text-amber-800">
+                {usersMap[pointsData[0].userId] ?? pointsData[0].userId}
+              </p>
+              <p className="text-sm text-amber-600">{pointsData[0].total} pts this {activeWindow === '7d' ? 'week' : activeWindow === '30d' ? 'month' : 'time'}</p>
+            </div>
+          </div>
+        )}
+
+        <div>
+          <h2 className="text-base font-semibold mb-3">Category Breakdown</h2>
+          <div className="grid grid-cols-3 gap-4">
+            {(['slowed-us-down', 'should-try', 'went-well'] as const).map((cat) => {
+              const labels: Record<string, string> = { 'slowed-us-down': 'Slowed Down', 'should-try': 'Should Try', 'went-well': 'Went Well' }
+              const current = feedbackByCategory[cat]
+              const prior = priorFeedback.filter(f => f.category === cat).length
+              const delta = current - prior
+              return (
+                <div key={cat} className="rounded-xl border border-border bg-card p-4 shadow-sm">
+                  <p className="text-xs text-muted-foreground mb-1">{labels[cat]}</p>
+                  <p className="text-2xl font-bold">{current}</p>
+                  {activeWindow !== 'all' && (
+                    <p className={`text-xs mt-1 font-medium ${delta >= 0 ? 'text-emerald-600' : 'text-red-500'}`}>
+                      {delta >= 0 ? `\u2191 +${delta}` : `\u2193 ${delta}`}{prior === 0 && current > 0 ? ' new' : ''}
+                    </p>
+                  )}
+                </div>
+              )
+            })}
+          </div>
+        </div>
+
+        <div>
+          <h2 className="text-base font-semibold mb-3">Top Voted Feedback</h2>
+          {[...feedbackItems].sort((a, b) => b.upvotes - a.upvotes).slice(0, 5).length === 0
+            ? <p className="text-sm text-muted-foreground">No feedback yet for this period</p>
+            : (
+              <div className="space-y-2">
+                {[...feedbackItems].sort((a, b) => b.upvotes - a.upvotes).slice(0, 5).map((f, i) => (
+                  <div key={f._id} className="rounded-lg border border-border bg-card p-3 flex items-start gap-3">
+                    <span className="text-sm font-bold text-muted-foreground w-5 flex-shrink-0">#{i + 1}</span>
+                    <div className="flex-1 min-w-0">
+                      <p className="text-sm text-foreground line-clamp-2">
+                        {f.content.length > 120 ? f.content.slice(0, 120) + '\u2026' : f.content}
+                      </p>
+                      <p className="text-xs text-muted-foreground mt-1">
+                        {f.isAnonymous ? 'Anonymous' : (usersMap[f.authorId] ?? 'Unknown')}
+                      </p>
+                    </div>
+                    <span className="text-sm font-bold text-amber-600 flex-shrink-0">\u25B2 {f.upvotes}</span>
+                  </div>
+                ))}
+              </div>
+            )
+          }
+        </div>
+
+        <div>
+          <h2 className="text-base font-semibold mb-3">Verified Improvements</h2>
+          {actionItems.filter(a => a.status === 'verified').length === 0
+            ? <p className="text-sm text-muted-foreground">No verified improvements yet this period</p>
+            : (
+              <div className="space-y-3">
+                {actionItems.filter(a => a.status === 'verified').map(a => (
+                  <div key={a._id} className="rounded-xl border border-border bg-card p-4 shadow-sm">
+                    <p className="text-sm font-semibold mb-2">{a.title}</p>
+                    {a.impactNote && (
+                      <div className="rounded-md border border-emerald-200 bg-emerald-50 px-3 py-2 text-sm text-emerald-800">
+                        {a.impactNote}
+                      </div>
+                    )}
+                  </div>
+                ))}
+              </div>
+            )
+          }
         </div>
       </div>
     </Shell>

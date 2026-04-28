@@ -1,6 +1,10 @@
 import { NextRequest, NextResponse } from 'next/server'
 import { connectDB } from '@/lib/db'
 import ActionItemModel from '@/lib/models/ActionItem'
+import PointEventModel from '@/lib/models/PointEvent'
+import { POINT_VALUES } from '@/types'
+import { evaluateBadges } from '@/lib/services/badgeService'
+import { getPodForUser } from '@/lib/utils/getPodForUser'
 
 export async function PATCH(
   req: NextRequest,
@@ -30,6 +34,24 @@ export async function PATCH(
     item.status = 'verified'
     item.impactNote = impactNote.trim()
     await item.save()
+
+    ;(async () => {
+      try {
+        const ownerId = String(item.ownerId)
+        const podId = await getPodForUser(ownerId)
+        await PointEventModel.create({
+          userId: ownerId,
+          podId,
+          action: 'verify_action',
+          points: POINT_VALUES.verify_action,
+          referenceId: String(item._id),
+        })
+        await evaluateBadges(ownerId, podId, 'verify_action')
+      } catch (err) {
+        console.error('[PointEvent] verify_action failed:', err)
+      }
+    })()
+
     return NextResponse.json(item, { status: 200 })
   } catch (err) {
     void err

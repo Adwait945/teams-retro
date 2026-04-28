@@ -2,6 +2,10 @@ import { NextRequest, NextResponse } from 'next/server'
 import { connectDB } from '@/lib/db'
 import FeedbackItemModel from '@/lib/models/FeedbackItem'
 import { getWindowFilter } from '@/lib/utils/windowFilter'
+import PointEventModel from '@/lib/models/PointEvent'
+import { POINT_VALUES } from '@/types'
+import { evaluateBadges } from '@/lib/services/badgeService'
+import { getPodForUser } from '@/lib/utils/getPodForUser'
 
 export async function GET(req: NextRequest) {
   try {
@@ -43,6 +47,23 @@ export async function POST(req: NextRequest) {
     const { sprintId: _removed, ...safeBody } = body
     const item = new FeedbackItemModel({ ...safeBody })
     await item.save()
+
+    ;(async () => {
+      try {
+        const podId = await getPodForUser(authorId)
+        await PointEventModel.create({
+          userId: authorId,
+          podId,
+          action: 'submit_feedback',
+          points: POINT_VALUES.submit_feedback,
+          referenceId: String(item._id),
+        })
+        await evaluateBadges(authorId, podId, 'submit_feedback')
+      } catch (err) {
+        console.error('[PointEvent] submit_feedback failed:', err)
+      }
+    })()
+
     return NextResponse.json(item, { status: 201 })
   } catch (err) {
     void err

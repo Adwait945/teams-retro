@@ -3,7 +3,7 @@
 import { useState, useEffect } from "react"
 import { usePathname, useRouter } from "next/navigation"
 import Link from "next/link"
-import { Hexagon, Settings, LayoutDashboard, MessageSquare, CheckSquare, LogOut } from "lucide-react"
+import { Hexagon, Settings, LayoutDashboard, MessageSquare, CheckSquare, LogOut, Trophy, Zap } from "lucide-react"
 import { cn } from "@/lib/utils"
 import type { User } from "@/types"
 
@@ -15,6 +15,7 @@ const BASE_NAV = [
   { href: "/dashboard",     label: "Dashboard",       icon: LayoutDashboard },
   { href: "/feedback",      label: "Feedback Board",  icon: MessageSquare },
   { href: "/action-items",  label: "Action Items",    icon: CheckSquare },
+  { href: "/leaderboard",   label: "Leaderboard",     icon: Trophy },
 ]
 const POD_SETTINGS_NAV = { href: "/pod-settings", label: "Pod Settings", icon: Settings }
 
@@ -22,11 +23,19 @@ export default function Shell({ children }: ShellProps) {
   const pathname = usePathname()
   const router = useRouter()
   const [currentUser, setCurrentUser] = useState<User | null>(null)
+  const [userPoints, setUserPoints] = useState<number>(0)
 
   useEffect(() => {
     try {
       const raw = sessionStorage.getItem("retroboard_user")
-      if (raw) setCurrentUser(JSON.parse(raw) as User)
+      if (raw) {
+        const u = JSON.parse(raw) as User
+        setCurrentUser(u)
+        fetch(`/api/points?pod=${encodeURIComponent(u.pod)}&window=all&userId=${u._id}`)
+          .then(r => r.json())
+          .then(data => { if (data?.total !== undefined) setUserPoints(data.total) })
+          .catch(() => {})
+      }
     } catch {
       // ignore parse errors
     }
@@ -77,6 +86,10 @@ export default function Shell({ children }: ShellProps) {
               <div className="flex-1 min-w-0">
                 <p className="text-sm font-medium truncate">{currentUser.name}</p>
                 <p className="text-xs text-muted-foreground">{currentUser.pod}</p>
+                <p className="text-xs text-muted-foreground flex items-center gap-1 mt-0.5">
+                  <Zap className="w-3 h-3 text-amber-500" />
+                  {userPoints} pts
+                </p>
               </div>
             </div>
             <button

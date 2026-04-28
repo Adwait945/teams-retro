@@ -6,7 +6,10 @@ export async function GET(req?: NextRequest) {
   try {
     await connectDB()
     const username = req?.nextUrl?.searchParams?.get('username') ?? null
-    const query = username ? { username } : {}
+    const pod = req?.nextUrl?.searchParams?.get('pod') ?? null
+    const query: Record<string, string> = {}
+    if (username) query.username = username
+    if (pod) query.pod = pod
     const users = await UserModel.find(query).lean()
     return NextResponse.json(users, { status: 200 })
   } catch (err) {

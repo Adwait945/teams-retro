@@ -8,17 +8,15 @@ export interface User {
   pod: string
   isAdmin: boolean
   totalPoints: number
-  badges: Badge[]
   createdAt: string
 }
 
 export interface Badge {
-  id: string
-  name: string
-  description: string
-  icon: string
-  earnedAt?: string
-  threshold: number
+  _id: string
+  userId: string
+  podId: string
+  type: BadgeType
+  earnedAt: string
 }
 
 export interface FeedbackItem {
@@ -49,27 +47,30 @@ export interface ActionItem {
 }
 
 export interface PointEvent {
-  id: string
+  _id: string
   userId: string
+  podId: string
   action: PointAction
   points: number
-  description: string
-  timestamp: string
+  referenceId?: string
+  createdAt: string
 }
 
 export type PointAction =
-  | "submit-feedback"
-  | "feedback-upvoted"
-  | "create-action-item"
-  | "complete-action-item"
-  | "verify-improvement"
+  | "submit_feedback"
+  | "receive_upvote"
+  | "remove_upvote"
+  | "convert_action"
+  | "complete_action"
+  | "verify_action"
 
 export const POINT_VALUES: Record<PointAction, number> = {
-  "submit-feedback": 5,
-  "feedback-upvoted": 10,
-  "create-action-item": 20,
-  "complete-action-item": 30,
-  "verify-improvement": 50,
+  submit_feedback: 10,
+  receive_upvote: 5,
+  remove_upvote: -5,
+  convert_action: 50,
+  complete_action: 100,
+  verify_action: 150,
 }
 
 export const CATEGORY_CONFIG: Record<
@@ -99,40 +100,27 @@ export const CATEGORY_CONFIG: Record<
   },
 }
 
-export const BADGES: Badge[] = [
-  {
-    id: "first-feedback",
-    name: "First Voice",
-    description: "Submit your first feedback item",
-    icon: "MessageSquare",
-    threshold: 5,
-  },
-  {
-    id: "process-improver",
-    name: "Process Improver",
-    description: "Earn 200 points",
-    icon: "Wrench",
-    threshold: 200,
-  },
-  {
-    id: "action-hero",
-    name: "Action Hero",
-    description: "Complete 5 action items",
-    icon: "Zap",
-    threshold: 150,
-  },
-  {
-    id: "team-catalyst",
-    name: "Team Catalyst",
-    description: "Earn 500 points",
-    icon: "Flame",
-    threshold: 500,
-  },
-  {
-    id: "retro-legend",
-    name: "Retro Legend",
-    description: "Earn 1000 points",
-    icon: "Trophy",
-    threshold: 1000,
-  },
+export type BadgeType =
+  | "feedback_machine"
+  | "action_taker"
+  | "innovator"
+  | "problem_solver"
+  | "consensus_builder"
+  | "pod_champion"
+
+export interface BadgeCatalogEntry {
+  type: BadgeType
+  label: string
+  icon: string
+  lifecycle: "permanent" | "living"
+  earnCondition: string
+}
+
+export const BADGE_CATALOG: BadgeCatalogEntry[] = [
+  { type: "feedback_machine",  label: "Feedback Machine",  icon: "🗣️", lifecycle: "permanent", earnCondition: "Submit 10+ feedback items in any 30-day window" },
+  { type: "action_taker",      label: "Action Taker",      icon: "🏃", lifecycle: "permanent", earnCondition: "Complete 3+ action items in any 30-day window" },
+  { type: "innovator",         label: "Innovator",         icon: "💡", lifecycle: "permanent", earnCondition: "Receive 20+ upvotes on Should Try feedback (all-time)" },
+  { type: "problem_solver",    label: "Problem Solver",    icon: "🔧", lifecycle: "permanent", earnCondition: "Own and complete an action item from Slowed Us Down feedback" },
+  { type: "consensus_builder", label: "Consensus Builder", icon: "🤝", lifecycle: "permanent", earnCondition: "Have a feedback item reach 10+ upvotes" },
+  { type: "pod_champion",      label: "Pod Champion",      icon: "👑", lifecycle: "living",    earnCondition: "Currently #1 on the pod leaderboard (30-day window)" },
 ]
