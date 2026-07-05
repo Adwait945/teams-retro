@@ -1,7 +1,6 @@
 import type { Metadata } from "next"
 import { Inter } from "next/font/google"
 import "./globals.css"
-import { RetroProvider } from "@/store/retro-store"
 
 const inter = Inter({ subsets: ["latin"] })
 
@@ -18,11 +17,9 @@ export default function RootLayout({
   return (
     <html lang="en" className="dark">
       <body className={inter.className}>
-        <RetroProvider>
-          <main className="flex-1 overflow-y-auto">
-            {children}
-          </main>
-        </RetroProvider>
+        <main className="flex-1 overflow-y-auto">
+          {children}
+        </main>
       </body>
     </html>
   )
