@@ -2,7 +2,19 @@ import { NextRequest, NextResponse } from "next/server"
 import { connectDB } from "@/lib/db"
 import ActionItemModel from "@/lib/models/ActionItem"
 import FeedbackItemModel from "@/lib/models/FeedbackItem"
+import UserModel from "@/lib/models/User"
 import { getWindowFilter } from "@/lib/utils/windowFilter"
+import { recordPointEvent } from "@/lib/pointsEngine"
+
+async function resolveUserPod(userId: string): Promise<string> {
+  try {
+    const user = await UserModel.findById(userId).lean()
+    return (user as { pod?: string } | null)?.pod ?? ''
+  } catch (err) {
+    console.error('[POST /api/actions] pod lookup failed:', err)
+    return ''
+  }
+}
 
 export async function GET(req: NextRequest) {
   try {
@@ -42,6 +54,21 @@ export async function POST(req: NextRequest) {
         safeBody.sourceFeedbackId,
         { $push: { actionItemIds: String(action._id) } }
       )
+
+      const feedback = await FeedbackItemModel.findById(safeBody.sourceFeedbackId)
+      if (feedback) {
+        const podId = await resolveUserPod(feedback.authorId)
+        try {
+          recordPointEvent({
+            userId: String(feedback.authorId),
+            podId,
+            action: 'convert_action',
+            relatedId: String(action._id),
+          })
+        } catch (err) {
+          console.error('[POST /api/actions] recordPointEvent failed:', err)
+        }
+      }
     }
 
     return NextResponse.json(action, { status: 201 })

@@ -1,7 +1,19 @@
 import { NextRequest, NextResponse } from 'next/server'
 import { connectDB } from '@/lib/db'
 import FeedbackItemModel from '@/lib/models/FeedbackItem'
+import UserModel from '@/lib/models/User'
 import { getWindowFilter } from '@/lib/utils/windowFilter'
+import { recordPointEvent } from '@/lib/pointsEngine'
+
+async function resolveAuthorPod(authorId: string): Promise<string> {
+  try {
+    const author = await UserModel.findById(authorId).lean()
+    return (author as { pod?: string } | null)?.pod ?? ''
+  } catch (err) {
+    console.error('[POST /api/feedback] author pod lookup failed:', err)
+    return ''
+  }
+}
 
 export async function GET(req: NextRequest) {
   try {
@@ -43,6 +55,19 @@ export async function POST(req: NextRequest) {
     const { sprintId: _removed, ...safeBody } = body
     const item = new FeedbackItemModel({ ...safeBody })
     await item.save()
+
+    const podId = await resolveAuthorPod(item.authorId)
+    try {
+      recordPointEvent({
+        userId: String(item.authorId),
+        podId,
+        action: 'submit_feedback',
+        relatedId: String(item._id),
+      })
+    } catch (err) {
+      console.error('[POST /api/feedback] recordPointEvent side effect failed:', err)
+    }
+
     return NextResponse.json(item, { status: 201 })
   } catch (err) {
     void err

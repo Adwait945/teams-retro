@@ -8,17 +8,7 @@ export interface User {
   pod: string
   isAdmin: boolean
   totalPoints: number
-  badges: Badge[]
   createdAt: string
-}
-
-export interface Badge {
-  id: string
-  name: string
-  description: string
-  icon: string
-  earnedAt?: string
-  threshold: number
 }
 
 export interface FeedbackItem {
@@ -48,28 +38,47 @@ export interface ActionItem {
   impactNote?: string
 }
 
-export interface PointEvent {
-  id: string
-  userId: string
-  action: PointAction
-  points: number
-  description: string
-  timestamp: string
-}
-
 export type PointAction =
-  | "submit-feedback"
-  | "feedback-upvoted"
-  | "create-action-item"
-  | "complete-action-item"
-  | "verify-improvement"
+  | "submit_feedback"
+  | "receive_upvote"
+  | "remove_upvote"
+  | "convert_action"
+  | "complete_action"
+  | "verify_action"
 
 export const POINT_VALUES: Record<PointAction, number> = {
-  "submit-feedback": 5,
-  "feedback-upvoted": 10,
-  "create-action-item": 20,
-  "complete-action-item": 30,
-  "verify-improvement": 50,
+  submit_feedback: 10,
+  receive_upvote: 5,
+  remove_upvote: -5,
+  convert_action: 50,
+  complete_action: 100,
+  verify_action: 150,
+}
+
+export interface PointEvent {
+  _id: string
+  userId: string
+  podId: string
+  action: PointAction
+  points: number
+  relatedId?: string
+  createdAt: string
+}
+
+export type BadgeType =
+  | "feedback_machine"
+  | "action_taker"
+  | "innovator"
+  | "problem_solver"
+  | "consensus_builder"
+  | "pod_champion"
+
+export interface Badge {
+  _id: string
+  userId: string
+  podId: string
+  type: BadgeType
+  earnedAt: string
 }
 
 export const CATEGORY_CONFIG: Record<
@@ -99,40 +108,44 @@ export const CATEGORY_CONFIG: Record<
   },
 }
 
-export const BADGES: Badge[] = [
-  {
-    id: "first-feedback",
-    name: "First Voice",
-    description: "Submit your first feedback item",
+export const BADGE_DEFINITIONS: Record<
+  BadgeType,
+  { name: string; icon: string; description: string; kind: "permanent" | "living" }
+> = {
+  feedback_machine: {
+    name: "Feedback Machine",
     icon: "MessageSquare",
-    threshold: 5,
+    description: "Submit 10 or more feedback items within a trailing 30-day window",
+    kind: "permanent",
   },
-  {
-    id: "process-improver",
-    name: "Process Improver",
-    description: "Earn 200 points",
-    icon: "Wrench",
-    threshold: 200,
-  },
-  {
-    id: "action-hero",
-    name: "Action Hero",
-    description: "Complete 5 action items",
+  action_taker: {
+    name: "Action Taker",
     icon: "Zap",
-    threshold: 150,
+    description: "Complete 3 or more action items within a trailing 30-day window",
+    kind: "permanent",
   },
-  {
-    id: "team-catalyst",
-    name: "Team Catalyst",
-    description: "Earn 500 points",
-    icon: "Flame",
-    threshold: 500,
+  innovator: {
+    name: "Innovator",
+    icon: "Lightbulb",
+    description: "Earn 20 or more total upvotes across your \"should try\" feedback items",
+    kind: "permanent",
   },
-  {
-    id: "retro-legend",
-    name: "Retro Legend",
-    description: "Earn 1000 points",
-    icon: "Trophy",
-    threshold: 1000,
+  problem_solver: {
+    name: "Problem Solver",
+    icon: "Wrench",
+    description: "Complete or verify an action item sourced from a \"slowed us down\" item",
+    kind: "permanent",
   },
-]
+  consensus_builder: {
+    name: "Consensus Builder",
+    icon: "Users",
+    description: "Author a feedback item that receives 10 or more upvotes",
+    kind: "permanent",
+  },
+  pod_champion: {
+    name: "Pod Champion",
+    icon: "Crown",
+    description: "Currently ranked #1 in your pod for the trailing 30-day window",
+    kind: "living",
+  },
+}

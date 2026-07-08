@@ -99,7 +99,7 @@ export default function ActionItemsPage() {
 
   async function handleVerifySubmit(itemId: string, impactNote: string) {
     try {
-      await verifyImpact(itemId, impactNote)
+      await verifyImpact(itemId, impactNote, currentUser?._id ?? '')
       await refetch()
     } catch {
       // silent no-op

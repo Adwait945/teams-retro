@@ -5,6 +5,14 @@ import { useRouter } from "next/navigation"
 import Shell from "@/components/layout/Shell"
 import { getCurrentUser } from "@/services/userService"
 import type { FeedbackItem, ActionItem, User } from "@/types"
+import { useDashboardExtras } from "@/components/dashboard/useDashboardExtras"
+import MetricsGrid from "@/components/dashboard/MetricsGrid"
+import WindowTabs from "@/components/dashboard/WindowTabs"
+import ActivityFeedSection from "@/components/dashboard/ActivityFeedSection"
+import PodMvpSection from "@/components/dashboard/PodMvpSection"
+import CategoryBreakdownSection from "@/components/dashboard/CategoryBreakdownSection"
+import TopVotedFeedbackSection from "@/components/dashboard/TopVotedFeedbackSection"
+import VerifiedImprovementsSection from "@/components/dashboard/VerifiedImprovementsSection"
 
 const CATEGORY_LABEL: Record<string, string> = {
   'slowed-us-down': 'Slowed Us Down',
@@ -87,7 +95,15 @@ export default function DashboardPage() {
       }
     }
     load()
-  }, [activeWindow, router])
+    // `router` intentionally omitted (Sprint 7, Session 5): the test mock's
+    // useRouter() returns a new object every render, so including `router`
+    // here caused an unbounded re-fetch loop (see IMPLEMENTATION_NOTES.md,
+    // Sprint 7 Session 5, for the full pre-existing-bug writeup). Only the
+    // deps array changed — no fetch/isLoading/loadError logic was touched.
+  }, [activeWindow]) // eslint-disable-line react-hooks/exhaustive-deps
+
+  // Epic 7.4: independent Pod MVP + prior-period category data (ADR-0002).
+  const { pointsData, isLoadingPoints, priorFeedbackItems } = useDashboardExtras(activeWindow)
 
   const totalFeedback = feedbackItems.length
   const feedbackByCategory = {
@@ -112,6 +128,12 @@ export default function DashboardPage() {
     : `${Math.round(actionsByStatus.verified / verifyDenom * 100)}%`
 
   const feed = buildFeed(feedbackItems, actionItems, usersMap)
+
+  const topVotedFeedback = [...feedbackItems]
+    .sort((a, b) => b.upvotes - a.upvotes)
+    .slice(0, 5)
+
+  const verifiedImprovements = actionItems.filter((a) => a.status === 'verified')
 
   if (isLoading) {
     return (
@@ -143,92 +165,30 @@ export default function DashboardPage() {
           </p>
         </div>
 
-        <div className="flex gap-2">
-          {(['7d', '30d', 'all'] as const).map((w) => {
-            const labels = { '7d': 'This Week', '30d': 'This Month', 'all': 'All-Time' }
-            return (
-              <button
-                key={w}
-                data-testid={`tab-${w}`}
-                onClick={() => setActiveWindow(w)}
-                className={`px-4 py-2 rounded-md text-sm font-medium transition-colors ${
-                  activeWindow === w
-                    ? 'bg-primary text-primary-foreground'
-                    : 'bg-secondary/50 text-muted-foreground hover:bg-secondary'
-                }`}
-              >
-                {labels[w]}
-              </button>
-            )
-          })}
-        </div>
+        <WindowTabs activeWindow={activeWindow} onChange={setActiveWindow} />
 
-        <div className="grid grid-cols-4 gap-4">
-          <div className="rounded-xl border border-border bg-card p-4 shadow-sm">
-            <p className="text-xs text-muted-foreground mb-1">Total Feedback</p>
-            <p className="text-2xl font-bold" data-testid="metric-feedback-total">{totalFeedback}</p>
-          </div>
-          <div className="rounded-xl border border-border bg-card p-4 shadow-sm">
-            <p className="text-xs text-muted-foreground mb-1">Slowed Us Down</p>
-            <p className="text-2xl font-bold" data-testid="metric-feedback-slowed">{feedbackByCategory['slowed-us-down']}</p>
-          </div>
-          <div className="rounded-xl border border-border bg-card p-4 shadow-sm">
-            <p className="text-xs text-muted-foreground mb-1">Should Try</p>
-            <p className="text-2xl font-bold" data-testid="metric-feedback-should">{feedbackByCategory['should-try']}</p>
-          </div>
-          <div className="rounded-xl border border-border bg-card p-4 shadow-sm">
-            <p className="text-xs text-muted-foreground mb-1">Went Well</p>
-            <p className="text-2xl font-bold" data-testid="metric-feedback-well">{feedbackByCategory['went-well']}</p>
-          </div>
-        </div>
+        <MetricsGrid
+          totalFeedback={totalFeedback}
+          feedbackByCategory={feedbackByCategory}
+          totalActions={totalActions}
+          actionsByStatus={actionsByStatus}
+          completionRate={completionRate}
+          verificationRate={verificationRate}
+        />
 
-        <div className="grid grid-cols-4 gap-4">
-          <div className="rounded-xl border border-border bg-card p-4 shadow-sm">
-            <p className="text-xs text-muted-foreground mb-1">Total Actions</p>
-            <p className="text-2xl font-bold" data-testid="metric-actions-total">{totalActions}</p>
-          </div>
-          <div className="rounded-xl border border-border bg-card p-4 shadow-sm">
-            <p className="text-xs text-muted-foreground mb-1">Open</p>
-            <p className="text-2xl font-bold" data-testid="metric-actions-open">{actionsByStatus.open}</p>
-          </div>
-          <div className="rounded-xl border border-border bg-card p-4 shadow-sm">
-            <p className="text-xs text-muted-foreground mb-1">In Progress</p>
-            <p className="text-2xl font-bold" data-testid="metric-actions-inprogress">{actionsByStatus['in-progress']}</p>
-          </div>
-          <div className="rounded-xl border border-border bg-card p-4 shadow-sm">
-            <p className="text-xs text-muted-foreground mb-1">Completed</p>
-            <p className="text-2xl font-bold" data-testid="metric-actions-completed">{actionsByStatus.completed}</p>
-          </div>
-        </div>
+        <ActivityFeedSection feed={feed} />
 
-        <div className="grid grid-cols-3 gap-4">
-          <div className="rounded-xl border border-border bg-card p-4 shadow-sm">
-            <p className="text-xs text-muted-foreground mb-1">Verified</p>
-            <p className="text-2xl font-bold" data-testid="metric-actions-verified">{actionsByStatus.verified}</p>
-          </div>
-          <div className="rounded-xl border border-border bg-card p-4 shadow-sm">
-            <p className="text-xs text-muted-foreground mb-1">Completion Rate</p>
-            <p className="text-2xl font-bold" data-testid="metric-completion-rate">{completionRate}</p>
-          </div>
-          <div className="rounded-xl border border-border bg-card p-4 shadow-sm">
-            <p className="text-xs text-muted-foreground mb-1">Verification Rate</p>
-            <p className="text-2xl font-bold" data-testid="metric-verification-rate">{verificationRate}</p>
-          </div>
-        </div>
+        <PodMvpSection pointsData={pointsData} isLoading={isLoadingPoints} />
 
-        <div className="rounded-xl border border-border bg-card p-5 shadow-sm">
-          <h2 className="text-base font-semibold mb-4">Activity Feed</h2>
-          <div data-testid="activity-feed">
-            {feed.length === 0
-              ? <p data-testid="activity-feed-empty" className="text-sm text-muted-foreground">No activity yet</p>
-              : feed.map((entry, i) => (
-                  <div key={i} data-testid="feed-entry" className="text-sm py-1 border-b border-border/30 last:border-0">
-                    {entry.text}
-                  </div>
-                ))
-            }
-          </div>
-        </div>
+        <CategoryBreakdownSection
+          current={feedbackItems}
+          prior={priorFeedbackItems}
+          window={activeWindow}
+        />
+
+        <TopVotedFeedbackSection items={topVotedFeedback} />
+
+        <VerifiedImprovementsSection items={verifiedImprovements} />
       </div>
     </Shell>
   )

@@ -25,6 +25,7 @@ jest.mock('@/lib/models/User', () => {
   return { __esModule: true, default: MockUserModel }
 })
 
+import { NextRequest } from 'next/server'
 import { GET, POST } from '@/app/api/users/route'
 
 const { default: UserModel } = jest.requireMock('@/lib/models/User')
@@ -49,7 +50,7 @@ test('UA-1: GET /api/users returns 200 with JSON array', async () => {
     { _id: 'u2', name: 'Bob',   username: 'bob',   pod: 'pod2', isAdmin: false },
   ])
 
-  const res = await GET()
+  const res = await GET(new NextRequest('http://localhost/api/users'))
   expect(res.status).toBe(200)
   const body = await res.json()
   expect(Array.isArray(body)).toBe(true)

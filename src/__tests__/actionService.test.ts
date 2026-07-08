@@ -248,7 +248,7 @@ describe('PATCH /api/actions/[id]/verify', () => {
     mockFindByIdAction.mockResolvedValue(completedItem)
     const req = new NextRequest('http://localhost/api/actions/ai-1/verify', {
       method: 'PATCH',
-      body: JSON.stringify({ impactNote: 'Deployments now take 5 minutes instead of 45.' }),
+      body: JSON.stringify({ impactNote: 'Deployments now take 5 minutes instead of 45.', userId: 'user-1' }),
       headers: { 'Content-Type': 'application/json' },
     })
     const res = await verifyPATCH(req, { params: { id: 'ai-1' } })
@@ -277,7 +277,7 @@ describe('PATCH /api/actions/[id]/verify', () => {
     mockFindByIdAction.mockResolvedValue(openItem)
     const req = new NextRequest('http://localhost/api/actions/ai-1/verify', {
       method: 'PATCH',
-      body: JSON.stringify({ impactNote: 'Some impact.' }),
+      body: JSON.stringify({ impactNote: 'Some impact.', userId: 'user-1' }),
       headers: { 'Content-Type': 'application/json' },
     })
     const res = await verifyPATCH(req, { params: { id: 'ai-1' } })
@@ -289,7 +289,7 @@ describe('PATCH /api/actions/[id]/verify', () => {
 describe('verifyImpact service (Verification Gate)', () => {
   test('AS-VG-1: throws before calling fetch when impactNote is empty', async () => {
     global.fetch = jest.fn()
-    const call = verifyImpact('ai-1', '')
+    const call = verifyImpact('ai-1', '', 'user-1')
     await expect(call).rejects.toThrow()
     expect(global.fetch).not.toHaveBeenCalled()
   })

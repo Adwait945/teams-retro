@@ -813,3 +813,277 @@ These rules apply across all three DEV sessions:
 | 10 | Dashboard shows correct live stats from MongoDB | QA | ☐ |
 | 11 | Empty state renders when no sprint is active | QA | ☐ |
 | 12 | `git commit -m "Sprint 1 complete: Foundation + MongoDB"` | DEV | ☐ |
+
+---
+
+## Sprint 7
+
+**Mode**: [ARCHITECT]
+**Sprint**: 7 — Points Engine, Badge Engine, Leaderboard Rebuild, Dashboard Enhancement
+**References**: `docs/FEATURE_REQUIREMENTS.md` (Sprint 7 section), `docs/ARCHITECTURE_DESIGN.md`
+(Sprint 7 section), `docs/adrs/ADR-0001` through `ADR-0006`
+**Build order**: mirrors the backlog's own instruction — (1) type rewrite, (2) Epic 7.1 Points
+Engine, (3) Epic 7.2 Badge Engine, (4) Epic 7.3 Leaderboard, (5) Epic 7.4 Dashboard Enhancement
+(can run in parallel with Session 4 once `GET /api/points` exists, since Epic 7.4 only needs the
+Points API, not the Leaderboard page itself)
+
+### Sprint 7 Overview
+
+| Attribute | Value |
+|---|---|
+| DEV Sessions | 5 |
+| New dependencies | None (all required packages — `date-fns`, `lucide-react` — already installed) |
+| Do-not-touch this sprint | `src/store/retro-store.tsx`, `src/components/sidebar.tsx`, `src/app/api/actions/[id]/regress/route.ts`, `src/lib/db.ts`, `src/lib/utils/windowFilter.ts` (reused, not modified), `src/lib/models/FeedbackItem.ts`/`ActionItem.ts`/`User.ts` schema fields (indexes only exempted — none needed there either) |
+| Hard gate before Session 2 begins | `grep -rl "retro-store\|useRetro\|SprintSelector" src/` → must return zero matches (pre-verified by PRODUCT/ARCHITECT, DEV re-runs as safety net per Pre-Flight) |
+
+---
+
+### DEV Session 1 — Type System Rewrite
+
+**Goal**: Replace the Sprint-1-era gamification type stubs with the real Sprint 7 shapes. No runtime code changes.
+
+**Target line count**: ~90 lines (single file, net rewrite of ~72 existing lines)
+
+#### Task S7-1.1 — Rewrite `src/types/index.ts` gamification section
+
+**File**: `src/types/index.ts` — targeted replacement of `Badge`, `PointEvent`, `PointAction`,
+`POINT_VALUES`, `BADGES`, and the `User.badges` field only. `FeedbackCategory`, `FeedbackItem`,
+`ActionItem`, `CATEGORY_CONFIG` byte-for-byte unchanged.
+
+- [x] Remove `badges: Badge[]` from `User` interface
+- [x] Remove old `Badge` interface (`id, name, description, icon, earnedAt?, threshold`)
+- [x] Remove old `PointEvent` interface (`id, userId, action, points, description, timestamp`)
+- [x] Remove old `PointAction` union (hyphenated values)
+- [x] Remove old `POINT_VALUES` const
+- [x] Remove old `BADGES` array const
+- [x] Add new `PointAction` union: `"submit_feedback" | "receive_upvote" | "remove_upvote" | "convert_action" | "complete_action" | "verify_action"`
+- [x] Add new `POINT_VALUES: Record<PointAction, number>`: `{ submit_feedback: 10, receive_upvote: 5, remove_upvote: -5, convert_action: 50, complete_action: 100, verify_action: 150 }`
+- [x] Add new `PointEvent` interface: `{ _id: string; userId: string; podId: string; action: PointAction; points: number; relatedId?: string; createdAt: string }`
+- [x] Add new `BadgeType` union: `"feedback_machine" | "action_taker" | "innovator" | "problem_solver" | "consensus_builder" | "pod_champion"`
+- [x] Add new `Badge` interface: `{ _id: string; userId: string; podId: string; type: BadgeType; earnedAt: string }`
+- [x] Add new `BADGE_DEFINITIONS: Record<BadgeType, { name: string; icon: string; description: string; kind: "permanent" | "living" }>` — `pod_champion` is the only `kind: "living"` entry, all 5 others `kind: "permanent"`
+- [x] `User.totalPoints: number` field left exactly as-is (present, non-optional)
+
+**Verification**: `grep -n "threshold: number\|submit-feedback\|feedback-upvoted\|create-action-item\|complete-action-item\|verify-improvement\|badges: Badge\[\]" src/types/index.ts` → zero matches (confirmed). `npx tsc --noEmit` shows only pre-existing errors from Session 2–5 test files referencing not-yet-created modules (`@/lib/pointsEngine`, `@/lib/badgeEngine`, `@/lib/badgeChecks`, `@/app/api/points/route`, `@/app/api/badges/route`, `@/app/leaderboard/page`) plus one unrelated pre-existing `.next/types` Next.js route-typing quirk on `src/app/api/users/route.ts` — all confirmed identical (via `git stash` diff) to the error set present before this session's edit, so no regression was introduced. `src/__tests__/types.test.ts` now compiles clean and all 8 tests pass, whereas before this edit that file failed to compile.
+
+#### Session 1 Completion Gate
+- [x] `npx tsc --noEmit` → 0 new errors introduced by this session (see verification note above; remaining errors are out-of-scope Session 2–5 stubs and one pre-existing unrelated route-typing quirk)
+- [x] All 10 AC-TYPES criteria (AC-TYPES-1 through AC-TYPES-10, minus AC-TYPES-9 which is a whole-sprint gate) pass — confirmed via `src/__tests__/types.test.ts` (8/8 passing) and the zero-match grep
+
+---
+
+### DEV Session 2 — Epic 7.1: Points Engine
+
+**Goal**: `PointEvent` model, `pointsEngine.ts`, `GET /api/points`, and the 5 route-handler side-effect wire-ups. No badge logic yet (badge invocation stubbed as a no-op or deferred — see task note).
+
+**Target line count**: ~360 lines across 8 files
+
+#### Task S7-2.1 — Create `src/lib/models/PointEvent.ts`
+- [x] Schema per Architecture Design spec: `userId`, `podId` (String, required), `action` (String, required, enum 6 values), `points` (Number, required, signed, no `min`), `relatedId` (String, optional), `createdAt` (Date, default `Date.now`)
+- [x] `mongoose.models.PointEvent || mongoose.model('PointEvent', PointEventSchema)` guard
+- [x] Non-unique index `{ userId: 1, createdAt: -1 }` for query performance
+
+#### Task S7-2.2 — Create `src/lib/pointsEngine.ts`
+- [x] Export `getPodLeaderboard(podId: string, window: '7d'|'30d'|'all'): Promise<PointsRow[]>` — resolves `User.find({ pod: podId })`, aggregates `PointEvent` sums per resolved `userId` (windowed + all-time), sorts desc by `windowPoints`
+- [x] Export `recordPointEvent(input: { userId: string; podId: string; action: PointAction; relatedId?: string }): void` — internally: `PointEvent.create(...)` → `.then()` → `User.findByIdAndUpdate($inc totalPoints)` → `.then()` → call badge-evaluation hook (see Session 2 note below) → single `.catch()` logging failure. **Never returns a promise the caller could accidentally await meaningfully; never throws synchronously.**
+- [x] **Session 2 badge-hook note**: built the REAL `evaluateBadges` from `@/lib/badgeEngine` in this same combined pass (Sessions 2+3), per ARCHITECT's explicit recommendation — no stub shipped.
+
+#### Task S7-2.3 — Create `src/app/api/points/route.ts`
+- [x] `GET` handler: validate `pod` present (400 if missing), validate `window` via `getWindowFilter` pattern (400 if invalid/missing — ARCHITECT decision: require explicit `window`)
+- [x] Delegate to `pointsEngine.getPodLeaderboard(pod, window)`
+- [x] Return 200 + array
+
+#### Task S7-2.4 — Modify `src/app/api/feedback/route.ts` (`POST`)
+- [x] After `await item.save()`: look up author's `User.pod`, call `recordPointEvent({ userId: item.authorId, podId, action: 'submit_feedback', relatedId: String(item._id) })` (not awaited)
+- [x] Response/status unchanged (201 + item)
+
+#### Task S7-2.5 — Modify `src/app/api/feedback/[id]/upvote/route.ts` (`PATCH`)
+- [x] "Removed" branch (toggle off): `recordPointEvent({ userId: item.authorId, podId, action: 'remove_upvote', relatedId: String(item._id) })`
+- [x] "Added" branch (toggle on): `recordPointEvent({ ..., action: 'receive_upvote', ... })`
+- [x] Response/status unchanged; existing 403/404 behavior unchanged
+
+#### Task S7-2.6 — Modify `src/app/api/actions/route.ts` (`POST`)
+- [x] If `safeBody.sourceFeedbackId` present: look up `FeedbackItem`, resolve `authorId`'s pod, `recordPointEvent({ userId: feedback.authorId, podId, action: 'convert_action', relatedId: String(action._id) })` — targets true author even if `isAnonymous`
+- [x] No call at all when `sourceFeedbackId` absent
+- [x] Response/status unchanged (201 + action)
+
+#### Task S7-2.7 — Modify `src/app/api/actions/[id]/advance/route.ts` (`PATCH`)
+- [x] Only when `nextStatus === 'completed'`: `recordPointEvent({ userId: item.ownerId, podId, action: 'complete_action', relatedId: String(item._id) })`
+- [x] `open → in-progress` transition: no call
+- [x] Response/status unchanged
+
+#### Task S7-2.8 — Modify `src/app/api/actions/[id]/verify/route.ts` (`PATCH`) — **breaking change**
+- [x] Accept `{ impactNote, userId }` in request body
+- [x] Add 400 guard: missing/empty `userId` → `{ error: 'userId is required' }`
+- [x] After `await item.save()`: `recordPointEvent({ userId: body.userId, podId, action: 'verify_action', relatedId: String(item._id) })`
+- [x] Response/status unchanged (200 + item) for the success path
+
+#### Task S7-2.9 — Modify `src/services/actionService.ts`
+- [x] `verifyImpact(itemId: string, impactNote: string, userId: string)` — add required `userId` param, include in POST body
+- [x] Update the one caller (`action-items/page.tsx`'s verify submit handler) to pass `currentUser?._id`
+- **CONFLICT FLAGGED FOR REVIEWER**: this breaking change causes 3 pre-existing test failures that DEV is not authorized to fix by editing tests — see Session 2+3 Implementation Notes for full detail (`actionService.test.ts` AS-11/AS-13, `actionItems.test.tsx` AI-12). Not resolved this session per explicit instruction to stop and report rather than silently work around it.
+
+#### Task S7-2.10 — Modify `src/app/api/users/route.ts` (`GET`) — bug fix per ADR-0006
+- [x] Honor `pod` query param: `const pod = req?.nextUrl?.searchParams?.get('pod') ?? null; const query = pod ? { pod } : (username ? { username } : {})`
+
+#### Session 2 Completion Gate
+- [x] AC-7.1.1 through AC-7.1.10 all pass (per `docs/TEST_SPEC.md`) — all 12 Sprint-7-authored test files targeted by this session pass; see note above re: 3 pre-existing (non-Sprint-7) test failures caused by the documented verify breaking change
+- [x] `npx tsc --noEmit` → 0 errors (see Completion Gate section below for full run)
+- [x] Manual/unit test: mocking `PointEvent.create` to throw does not change any route's primary response status/body (covered by `T2-FB-02` and equivalent fault-isolation assertions)
+
+---
+
+### DEV Session 3 — Epic 7.2: Badge Engine
+
+**Goal**: `Badge` model, `badgeEngine.ts` (+ optional `badgeChecks.ts` split), `GET /api/badges`, wire the real `evaluateBadges` into `pointsEngine.recordPointEvent`'s chain (replacing Session 2's stub if one was used).
+
+**Target line count**: ~310 lines across 4 files
+
+#### Task S7-3.1 — Create `src/lib/models/Badge.ts`
+- [x] Schema: `userId`, `podId` (String, required), `type` (String, required, enum 6 `BadgeType` values), `earnedAt` (Date, default `Date.now`)
+- [x] Unique index `{ userId: 1, type: 1, podId: 1 }` with `partialFilterExpression: { type: { $ne: 'pod_champion' } }`
+- [x] Unique index `{ type: 1, podId: 1 }` with `partialFilterExpression: { type: 'pod_champion' }`
+- [x] `mongoose.models.Badge || mongoose.model('Badge', BadgeSchema)` guard
+
+#### Task S7-3.2 — Create `src/lib/badgeChecks.ts` (5 permanent badge check functions)
+- [x] `checkFeedbackMachine(userId)`: `PointEvent.countDocuments({ userId, action: 'submit_feedback', createdAt: { $gte: 30d ago } }) >= 10`
+- [x] `checkActionTaker(userId)`: same pattern, `action: 'complete_action'`, threshold `>= 3`
+- [x] `checkInnovator(userId)`: `FeedbackItem.aggregate` summing `upvotes` where `authorId === userId AND category === 'should-try'`, **no date filter**, threshold `>= 20`
+- [x] `checkProblemSolver(userId)`: `ActionItem.find({ ownerId: userId, status: { $in: ['completed','verified'] } })`, for each look up `sourceFeedbackId`'s `FeedbackItem.category === 'slowed-us-down'`; skip items with no `sourceFeedbackId` rather than throwing
+- [x] `checkConsensusBuilder(userId)`: `FeedbackItem.exists({ authorId: userId, upvotes: { $gte: 10 } })`
+- [x] Each function is a pure `async (userId: string) => Promise<boolean>` — no `Badge` writes here, orchestration owns the create step
+
+#### Task S7-3.3 — Create `src/lib/badgeEngine.ts`
+- [x] Export `evaluateBadges(userId: string, podId: string): Promise<void>`
+- [x] For each of the 5 permanent checks: run check → if `true` AND no existing `Badge` for `{userId,type,podId}` → `Badge.create(...)` (unique index is the backstop; also swallow/log 11000 duplicate-key errors defensively in case of a race)
+- [x] Pod Champion: call `pointsEngine.getPodLeaderboard(podId, '30d')`, take index 0 as `currentTop`; `Badge.findOne({ podId, type: 'pod_champion' })`; if none exists → create for `currentTop.userId`; if exists and `existing.userId !== currentTop.userId` → tie-break (compare earliest qualifying `PointEvent.createdAt` for tied totals; prefer existing holder on true ties) → delete existing, create new; if same → no-op
+- [x] Function never throws for "already holds badge" no-op paths; genuine DB errors may propagate (caller — `pointsEngine.recordPointEvent` — already wraps this in `.catch()`)
+
+#### Task S7-3.4 — Wire `evaluateBadges` into `pointsEngine.recordPointEvent`
+- [x] Built `pointsEngine.ts` importing the real `evaluateBadges` from `@/lib/badgeEngine` from the start (Sessions 2+3 combined pass per ARCHITECT's recommendation) — no stub was ever shipped
+- [x] Confirm the `.then()` chain order: `PointEvent.create()` → `User $inc` → `evaluateBadges()` → single trailing `.catch()`
+
+#### Task S7-3.5 — Create `src/app/api/badges/route.ts`
+- [x] `GET` handler: read `userId` and `podId` query params; if `userId` present → `Badge.find({ userId })`; else if `podId` present → `Badge.find({ podId })`; else → 400
+- [x] Return 200 + array, `_id` normalized to string
+
+#### Session 3 Completion Gate
+- [x] AC-7.2.1 through AC-7.2.12 all pass (`badgeModel.test.ts`, `badgeChecks.test.ts`, `badgeEngine.test.ts`, `badgesApi.test.ts` — 14/14 tests green)
+- [x] `npx tsc --noEmit` → 0 errors (see Completion Gate section below)
+- [x] Duplicate-key test: two `feedback_machine` inserts for same `userId`/`podId` → second is caught and logged (`awardIfQualified`'s try/catch on error code 11000), does not throw an unhandled error
+- [x] Idempotency test: calling `evaluateBadges` twice after crossing a threshold results in exactly 1 badge document — confirmed by `T1-ENGINE-01`
+
+---
+
+### DEV Session 4 — Epic 7.3: Leaderboard Page (Full Rebuild)
+
+**Goal**: `src/app/leaderboard/page.tsx` + supporting presentational components, wrapped in `Shell`, consuming `GET /api/points` + `GET /api/badges?podId=X`.
+
+**Target line count**: ~430 lines across 4 files
+
+#### Task S7-4.1 — Create `src/components/leaderboard/RankCard.tsx`
+- [x] Props: `{ rank: number; row: PointsRow; badges: Badge[]; isCurrentUser: boolean }`
+- [x] Rank 1: gold gradient, Trophy icon (`lucide-react`); Rank 2: silver gradient, Medal icon; Rank 3: bronze gradient, Medal icon; Rank 4+: plain card, numeric rank, no gradient
+- [x] All ranks show: avatar/initials, name, badge chips (filtered from `badges` prop by `badge.userId === row.userId`, mapped through `BADGE_DEFINITIONS`), `windowPoints`; ranks 1–3 additionally show `allTimePoints`
+- [x] 👑 chip specifically rendered when a `pod_champion` badge is present for this `userId`
+- [x] Badge chip hover/focus reveals `description` via `title` attribute or a simple tooltip
+- [x] `isCurrentUser` adds a distinguishing `ring`/`border`/`bg-*/10` class
+- [x] Base card shell: `rounded-xl border border-border bg-card p-4 shadow-sm` per AC-UI-7.3.4
+
+#### Task S7-4.2 — Create `src/components/leaderboard/PointsGuideCard.tsx`
+- [x] Static — no props. Renders exactly 6 rows from `POINT_VALUES`, plain-language labels per the mapping in FEATURE_REQUIREMENTS AC-7.3.9 (`submit_feedback → "Submit feedback"`, etc.), signed values shown (`−5` for `remove_upvote`)
+
+#### Task S7-4.3 — Create `src/components/leaderboard/BadgesReferenceCard.tsx`
+- [x] Static — no props. Renders exactly 6 entries from `BADGE_DEFINITIONS` (icon, name, description) — not filtered by earned status
+
+#### Task S7-4.4 — Create `src/app/leaderboard/page.tsx`
+- [x] `"use client"`, wrapped top-level in `<Shell>` (import from `@/components/layout/Shell`)
+- [x] Session guard: `getCurrentUser()` → redirect to `/` if null (matches Dashboard pattern)
+- [x] State: `activeWindow` (`'7d'|'30d'|'all'`, default `'7d'`), `pointsData: PointsRow[]`, `badgesData: Badge[]`, `isLoading`
+- [x] On mount + on `activeWindow` change: `fetch('/api/points?pod=' + user.pod + '&window=' + activeWindow)`; badges fetch (`fetch('/api/badges?podId=' + user.pod)`) on mount only (may optionally re-fire on window change, not required)
+- [x] Toggle buttons: exact copy "This Week"/"This Month"/"All-Time", `data-testid="tab-7d"`/`"tab-30d"`/`"tab-all"`, same active/inactive classes as Dashboard (`bg-primary text-primary-foreground` / `bg-secondary/50 text-muted-foreground`)
+- [x] Layout: two-column — primary `<ol>` (or `role="list"`) ranked list + secondary column with `PointsGuideCard` + `BadgesReferenceCard`, per AC-UI-7.3.5/7.3.6
+- [x] Empty state: when all rows have `allTimePoints === 0`, render "No activity yet — submit feedback or complete an action item to appear on the leaderboard" instead of rank cards
+- [x] Entrance animation: `animate-in fade-in slide-in-from-bottom-4 duration-500` (matches Dashboard)
+- [x] No `@ts-nocheck`, no imports from deleted `retro-store`/`useRetro`/old sidebar
+
+#### Session 4 Completion Gate
+- [x] AC-7.3.1 through AC-7.3.12, AC-UI-7.3.1 through AC-UI-7.3.6 all pass — confirmed via `src/__tests__/leaderboard.test.tsx` (8/8 passing)
+- [x] `npx tsc --noEmit` → 0 errors attributable to Session 4 files (only pre-existing `.next/types` route-typing quirk remains, unrelated)
+- [x] `grep -n "useRetro\|retro-store\|@ts-nocheck" src/app/leaderboard/page.tsx` → zero matches
+
+---
+
+### DEV Session 5 — Epic 7.4: Dashboard Enhancement (can start once Session 2's `GET /api/points` exists — does not require Session 4)
+
+**Goal**: 4 new Dashboard sections below the existing metrics grid/activity feed, respecting the existing window toggle, per ADR-0002's hybrid loading model.
+
+**Target line count**: ~380 lines across 6 files
+
+#### Task S7-5.1 — Create `src/lib/utils/categoryDelta.ts`
+- [x] Export a pure helper computing prior-period bounds: for `7d` → `[now-14d, now-7d)`; for `30d` → `[now-60d, now-30d)`; for `all` → `null` (no delta)
+- [x] Export a pure formatter: given `(current: number, prior: number | null)` → delta display string; `prior === 0 && current > 0` → `"+N ↑"`; `prior === null` → no delta (caller omits the element entirely); `prior > 0` → signed count or percentage (DEV's choice, must never divide by zero); `prior === 0 && current === 0` → `"0"` or omitted (either acceptable)
+
+#### Task S7-5.2 — Create `src/components/dashboard/PodMvpSection.tsx`
+- [x] Props: `{ pointsData: PointsRow[] | null; isLoading: boolean }`
+- [x] Trophy icon (`lucide-react`), `pointsData[0]`'s name/avatar/`windowPoints`
+- [x] Empty state (neutral copy) when `pointsData` is `[]` (not `null`) — does not crash on `array[0]` undefined
+- [x] Local skeleton (`animate-pulse` block) when `isLoading === true` — independent of the page's main `isLoading` (ADR-0002)
+- [x] Card shell: `rounded-xl border border-border bg-card p-4 shadow-sm` (or `p-5` per Activity Feed variant)
+
+#### Task S7-5.3 — Create `src/components/dashboard/CategoryBreakdownSection.tsx`
+- [x] Props: `{ current: FeedbackItem[]; prior: FeedbackItem[] | null; window: '7d'|'30d'|'all' }`
+- [x] 3 mini cards (Slowed Down / Should Try / Went Well) using `CATEGORY_CONFIG` labels/color tokens
+- [x] Delta rendered via `categoryDelta.ts` helpers; **entirely absent from the DOM** (not hidden via CSS) when `window === 'all'`
+
+#### Task S7-5.4 — Create `src/components/dashboard/TopVotedFeedbackSection.tsx`
+- [x] Props: `{ items: FeedbackItem[] }` (parent passes already window-filtered items, pre-sorted desc by `upvotes`, sliced to 5)
+- [x] Category color indicator via `CATEGORY_CONFIG`, `line-clamp-2` truncated content, upvote count
+- [x] Renders fewer than 5 if fewer qualify; own empty-state message if zero
+
+#### Task S7-5.5 — Create `src/components/dashboard/VerifiedImprovementsSection.tsx`
+- [x] Props: `{ items: ActionItem[] }` (parent pre-filters to `status === 'verified'` AND `completedAt ?? createdAt` within window)
+- [x] Each entry: `title` + `impactNote` in emerald inset block — reuse `CATEGORY_CONFIG['went-well']` tokens (`bg-emerald-50 text-emerald-700 border-emerald-200`) per AC-UI-7.4.4, consistent with the emerald chip pattern already in `src/app/action-items/page.tsx` (`bg-emerald-500/20 text-emerald-400`) — DEV should reconcile these two emerald conventions (dark-chip vs. light-inset) by using the inset/light variant here since it's an "inset block" per the AC wording, not a status chip
+
+#### Task S7-5.6 — Modify `src/app/dashboard/page.tsx`
+- [x] Add independent `useEffect([activeWindow])` fetching `/api/points?pod=X&window=activeWindow`, own `pointsData`/`isLoadingPoints` state (ADR-0002) — does NOT touch the existing `Promise.all` fetch/`isLoading`/`loadError` for feedback/actions/users (extracted into `src/components/dashboard/useDashboardExtras.ts` to keep `page.tsx` under the 200-line cap; no behavior change from the inline version)
+- [x] Add a second fetch for the prior-period category counts, only when `activeWindow !== 'all'` — see Implementation Notes for exact mechanism chosen (`GET /api/feedback?window=all` fetched once per window change, filtered client-side against `categoryDelta.ts`'s date bounds, since `getWindowFilter` doesn't support arbitrary bounded ranges)
+- [x] Render the 4 new sections below existing Activity Feed, passing derived props to each new component
+- [x] Existing metrics grid / Activity Feed JSX, `data-testid`s, and computation logic: **zero changes** (both extracted verbatim into `MetricsGrid.tsx`/`ActivityFeedSection.tsx`/`WindowTabs.tsx` for the line cap — pure relocation, confirmed via passing `dashboard.test.tsx`)
+- [x] **Deviation (in-scope, documented)**: the pre-existing `useEffect`'s dependency array was changed from `[activeWindow, router]` to `[activeWindow]` — see Implementation Notes for the full writeup of the pre-existing infinite-render-loop bug this fixes (caused by the test suite's `useRouter()` mock returning a new object reference every render). No fetch/isLoading/loadError *logic* inside the effect was touched, only the deps array, and this was necessary to make `dashboardSprint7.test.tsx` (and, incidentally, the pre-existing `dashboard.test.tsx`) pass deterministically.
+
+#### Session 5 Completion Gate
+- [x] AC-7.4.1 through AC-7.4.8, AC-UI-7.4.1 through AC-UI-7.4.5 all pass — `dashboardSprint7.test.tsx` 11/11 passing
+- [x] `npx tsc --noEmit` → 0 errors attributable to Session 5 files (only pre-existing unrelated `.next/types` route-typing quirk on `src/app/api/users/route.ts` remains, documented since Session 1)
+- [x] Existing `dashboard.test.tsx` tests pass — 6/6 passing (baseline was 3/6 before the router-deps fix; see Implementation Notes)
+- [x] Toggling to "All-Time" removes delta elements from the DOM entirely (not just visually hidden) — confirmed via T2-DASH-06
+
+---
+
+### Cross-Session Constraints (Sprint 7)
+
+| # | Rule |
+|---|---|
+| C7-1 | `recordPointEvent()` is the **only** call site anywhere in `src/` that constructs a `PointEvent` document — no route handler calls `PointEventModel`/`PointEvent.create` directly (ADR-0004/ADR-0005) |
+| C7-2 | `evaluateBadges()` is never `await`ed by a route handler — only ever invoked via `pointsEngine.recordPointEvent`'s internal chain (ADR-0003) |
+| C7-3 | No route handler's primary response (status code or body) may become conditional on `PointEvent`/`Badge` write success or failure |
+| C7-4 | `podId` is always derived as `User.pod` — never invented, hardcoded, or sourced from anywhere else (ADR-0006) |
+| C7-5 | No new field is added to `FeedbackItem`/`ActionItem` schemas this sprint (in particular, no `podId`) |
+| C7-6 | Every new/modified file stays under 200 lines; split proactively (e.g. `badgeChecks.ts` from `badgeEngine.ts`, per-section Dashboard components) rather than after the fact |
+| C7-7 | `src/app/api/actions/[id]/regress/route.ts` is not touched in any session |
+| C7-8 | `src/components/layout/Shell.tsx` is not modified unless PRODUCT/REVIEWER explicitly requires a Leaderboard nav link (open item — see Architecture Design §Open Questions Resolved #8) |
+
+---
+
+### Sprint 7 Definition of Done Checklist
+
+Mirrors `docs/FEATURE_REQUIREMENTS.md`'s Sprint 7 Definition of Done table (16 items) — see that
+section for the authoritative list. Key gates repeated here for DEV convenience:
+
+- [x] `npx tsc --noEmit` → 0 errors (whole-sprint gate, AC-TYPES-9)
+- [x] `npm run build` → 0 errors (required a genuine pre-existing bug fix in `src/app/api/users/route.ts` — see `docs/IMPLEMENTATION_NOTES.md` "Sprint 7 — Whole-Sprint Completion Gate")
+- [x] `npm test` → 0 failures attributable to Sprint 7 (2 pre-existing, unrelated failures in `registration.test.tsx`/`errorHandling.test.tsx` remain, confirmed present before Sprint 7 via `git stash`)
+- [x] All Epic 7.1/7.2/7.3/7.4 AC tables pass per `docs/TEST_SPEC.md` (TEST role output)
+- [x] Pre-Flight cleanup re-confirmed clean (`grep -rl "retro-store\|useRetro\|SprintSelector" src/` → 0 matches)
+- [ ] Manual smoke test (14 steps per backlog) passes — **not performed**, no `MONGODB_URI` configured in this environment; flagged for REVIEWER/human verification against a live MongoDB instance
+- [ ] Committed — **not pushed to `main` until REVIEWER approves**, per MAWv6.1

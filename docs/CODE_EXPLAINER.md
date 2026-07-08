@@ -1,3 +1,860 @@
+## Sprint 7 — Code Explanation
+_Written by PROFESSOR on 2026-07-08_
+
+This section covers the entire Sprint 7 gamification build in one pass: the type-system rewrite
+(Session 1), the Points Engine + Badge Engine (Sessions 2+3, run together), the Leaderboard page
+rebuild (Session 4), the Dashboard enhancement (Session 5), and the two-file build-blocker fix the
+pipeline coordinator made right after Session 5 wrapped up. Read this section top to bottom if
+you're new to what "gamification" means in this app — points, badges, and a leaderboard, all
+built on top of the feedback and action-item systems from earlier sprints.
+
+### Diagram 1 — How one user action turns into points, badges, and a leaderboard update
+
+*This diagram follows a single feedback submission (or an action-item being verified) from the
+moment a user clicks a button in their browser all the way through to it eventually showing up on
+the Leaderboard and Dashboard pages.*
+
+```mermaid
+flowchart TD
+    A["User clicks 'Submit Feedback' (or 'Verify Impact') in the browser"] --> B["Page sends a request to the matching API route\n(e.g. POST /api/feedback or PATCH /api/actions/:id/verify)"]
+    B --> C["API route saves the feedback/action change to MongoDB first\n(the user's own action always succeeds even if points fail later)"]
+    C --> D["API route calls pointsEngine.recordPointEvent(...)\nNOTE: this call is fire-and-forget — the API route does NOT wait for it"]
+    D --> E["Points Engine writes a new PointEvent document to MongoDB\n(a permanent receipt: who, what action, how many points, when)"]
+    E --> F["Points Engine increments User.totalPoints\nby the point value of that action"]
+    F --> G["Points Engine calls badgeEngine.evaluateBadges(user, pod)\nalso fire-and-forget — nothing waits for badges to finish"]
+    G --> H["Badge Engine checks all 6 badge rules against\nthe user's current MongoDB data"]
+    H --> I["Badge Engine writes new Badge documents\nfor any badge just newly earned"]
+    B -.->|"response returns immediately to the browser,\nusually before D-I have even finished"| A
+    E --> J["Later: Leaderboard page or Dashboard page loads"]
+    I --> J
+    J --> K["Browser calls GET /api/points?pod=...&window=...\nand GET /api/badges?podId=..."]
+    K --> L["Points/Badges API routes read PointEvent totals\nand Badge documents straight from MongoDB"]
+    L --> M["Leaderboard page shows ranked users + badge icons\nDashboard page shows Pod MVP card"]
+```
+
+### Diagram 2 — How the Sprint 7 pieces fit together as a system
+
+*This diagram groups every new or changed Sprint 7 file into four layers — the database layer at
+the bottom, the "engine" logic layer above it, the API layer that the browser talks to, and the
+two screens people actually look at on top.*
+
+```mermaid
+flowchart TB
+    subgraph UI["UI Layer — pages people look at"]
+        LB["Leaderboard page\n(ranked list, points guide, badges list)"]
+        DASH["Dashboard page\n(Pod MVP card, category breakdown, top voted, verified wins)"]
+    end
+
+    subgraph API["API Layer — HTTP doors the browser knocks on"]
+        PTS_API["GET /api/points\n(leaderboard numbers)"]
+        BADGE_API["GET /api/badges\n(who earned what)"]
+        FEED_API["POST /api/feedback\n(submit feedback)"]
+        UPVOTE_API["PATCH /api/feedback/:id/upvote\n(give or remove an upvote)"]
+        ACTIONS_API["POST /api/actions\n(convert feedback into an action item)"]
+        ADVANCE_API["PATCH /api/actions/:id/advance\n(move an action item forward a stage)"]
+        VERIFY_API["PATCH /api/actions/:id/verify\n(confirm an action item actually helped)"]
+    end
+
+    subgraph ENGINE["Engine Layer — the gamification 'brain', no HTTP knowledge"]
+        POINTS_ENGINE["pointsEngine.ts\nrecordPointEvent() + getPodLeaderboard()"]
+        BADGE_ENGINE["badgeEngine.ts\nevaluateBadges() + Pod Champion tie-break"]
+        BADGE_CHECKS["badgeChecks.ts\n5 yes/no rule functions, one per badge"]
+    end
+
+    subgraph DATA["Data Layer — permanent storage in MongoDB"]
+        PE_MODEL["PointEvent model\n(one row per point-earning action, ever)"]
+        BADGE_MODEL["Badge model\n(one row per badge a user currently holds)"]
+        USER_MODEL["User model\n(totalPoints running total lives here)"]
+    end
+
+    LB --> PTS_API
+    LB --> BADGE_API
+    DASH --> PTS_API
+
+    FEED_API --> POINTS_ENGINE
+    UPVOTE_API --> POINTS_ENGINE
+    ACTIONS_API --> POINTS_ENGINE
+    ADVANCE_API --> POINTS_ENGINE
+    VERIFY_API --> POINTS_ENGINE
+
+    PTS_API --> POINTS_ENGINE
+    BADGE_API --> BADGE_MODEL
+
+    POINTS_ENGINE --> PE_MODEL
+    POINTS_ENGINE --> USER_MODEL
+    POINTS_ENGINE --> BADGE_ENGINE
+    BADGE_ENGINE --> BADGE_CHECKS
+    BADGE_ENGINE --> BADGE_MODEL
+    BADGE_ENGINE --> PE_MODEL
+    BADGE_CHECKS --> PE_MODEL
+```
+
+### Diagram 3 — The "Pod Champion" crown-passing sequence
+
+*The Pod Champion badge is special: unlike the other 5 badges (which anyone can earn and keep
+forever), only ONE person per pod can hold "Pod Champion" at a time, and it can be taken away
+from them if someone else takes the lead. This diagram walks through exactly how the system
+decides who holds the crown, including what happens when two people are tied.*
+
+```mermaid
+sequenceDiagram
+    participant User as User (completes an action / earns points)
+    participant API as API route (e.g. verify action)
+    participant PointsEngine as Points Engine
+    participant BadgeEngine as Badge Engine
+    participant BadgeDB as Badge collection (MongoDB)
+
+    User->>API: Completes an action worth points
+    API->>PointsEngine: recordPointEvent(...) [not awaited]
+    PointsEngine->>PointsEngine: Save PointEvent + add to User.totalPoints
+    PointsEngine->>BadgeEngine: evaluateBadges(user, pod) [not awaited]
+    BadgeEngine->>BadgeEngine: Build this pod's "last 30 days" leaderboard
+    BadgeEngine->>BadgeDB: Who currently holds Pod Champion in this pod?
+
+    alt No one holds it yet
+        BadgeEngine->>BadgeDB: Create Pod Champion badge for the #1 ranked user
+    else Current holder is still #1
+        BadgeEngine->>BadgeEngine: No change needed — do nothing
+    else Someone new is now #1
+        BadgeEngine->>BadgeEngine: Is the #1 spot a tie between multiple users?
+        alt Not a tie — one clear leader
+            BadgeEngine->>BadgeDB: Delete old holder's Pod Champion badge
+            BadgeEngine->>BadgeDB: Create new Pod Champion badge for the new leader
+        else It's a tie
+            BadgeEngine->>BadgeEngine: Look up each tied user's very first point-earning\nmoment and find whoever reached the tie earliest
+            BadgeEngine->>BadgeEngine: If timestamps are exactly equal,\nthe existing badge holder keeps the crown
+            BadgeEngine->>BadgeDB: Delete old holder's Pod Champion badge
+            BadgeEngine->>BadgeDB: Create new Pod Champion badge for the tie-break winner
+        end
+    end
+```
+
+---
+
+### File-by-file explanations
+
+---
+
+#### `src/types/index.ts` (Session 1 — gamification section rewritten)
+
+**What it IS**: The single rulebook of "shapes" for every piece of data in the app — this file
+doesn't run any logic, it just defines what a `User`, a `PointEvent`, or a `Badge` is allowed to
+look like, so every other file agrees on the same vocabulary.
+
+**What it DOES**: This session rewrote only the gamification-related section, block by block:
+- `PointAction` — a fixed list of the six things that earn or lose someone points: submitting
+  feedback, receiving an upvote, losing an upvote, converting feedback into an action item,
+  completing an action item, and verifying an action item's impact.
+- `POINT_VALUES` — a lookup table pairing each of those six actions with a point value:
+  `submit_feedback: 10`, `receive_upvote: 5`, `remove_upvote: -5` (a real loss, not just zero),
+  `convert_action: 50`, `complete_action: 100`, `verify_action: 150`.
+- `PointEvent` — the shape of one "receipt" row: which user, which pod, which action, how many
+  points, an optional link back to the feedback/action item that caused it, and a timestamp.
+- `BadgeType` — the fixed list of six possible badges someone can hold.
+- `Badge` — the shape of one earned badge: who, which pod, which type, and when they earned it.
+- `BADGE_DEFINITIONS` — a lookup table with the human-readable name, an icon name, a description
+  sentence, and a `kind` flag (`"permanent"` for five of them, `"living"` for Pod Champion only,
+  meaning it can be taken away).
+
+**WHY it exists**: If this file were deleted, nothing in the gamification system would even
+compile — every engine, API route, and UI component in this sprint imports its shapes from here.
+It is also what stops two different files from silently disagreeing on, say, whether points are
+called `submit-feedback` (old, hyphenated) or `submit_feedback` (new, underscored) — TypeScript
+would immediately flag any file still using the old spelling.
+
+**HOW it connects**: Everything downstream imports from this file — `pointsEngine.ts`,
+`badgeEngine.ts`, `badgeChecks.ts`, both Mongoose models, both new API routes, and every
+leaderboard/dashboard UI component. It has no dependencies of its own going the other direction.
+
+**Analogy**: This is the official rulebook and glossary for a board game. It doesn't play any
+moves itself, but every player (every other file) has to agree on what a "point" or a "badge" is
+before the game can be played at all.
+
+---
+
+#### `src/lib/models/PointEvent.ts`
+
+**What it IS**: The MongoDB "filing cabinet drawer" definition for point-earning events — it
+tells the database exactly what fields a PointEvent document must have.
+
+**What it DOES**: Defines a Mongoose schema with `userId` and `podId` (both required text),
+`action` (required, restricted to the same six values as the `PointAction` type), `points`
+(required whole number, allowed to be negative for `remove_upvote`), an optional `relatedId`
+linking back to the feedback/action item, and `createdAt` (defaults to "right now" if not given).
+It also creates a database index on `{ userId, createdAt }` so that looking up "all of this
+user's point events, newest first" stays fast even as the collection grows. The final line uses
+a standard safety guard (`mongoose.models.PointEvent || mongoose.model(...)`) that prevents
+Next.js from trying to redefine the same model twice during hot-reloading in development.
+
+**WHY it exists**: Without this file, there would be nowhere in the database to permanently
+record "user X earned 10 points for submitting feedback." Every point total on the leaderboard is
+calculated by summing up rows from this collection — it is the ledger, not just a running counter.
+
+**HOW it connects**: Created by `pointsEngine.ts`'s `recordPointEvent` function every time a
+qualifying action happens; read by `pointsEngine.ts`'s `getPodLeaderboard` (to sum points) and by
+`badgeChecks.ts` (to count how many `submit_feedback`/`complete_action` events happened in the
+last 30 days).
+
+**Analogy**: A bank's transaction ledger. Your account balance (`User.totalPoints`) is just a
+running number, but this file is the permanent, itemized list of every single deposit and
+withdrawal that ever produced that number.
+
+---
+
+#### `src/lib/models/Badge.ts`
+
+**What it IS**: The MongoDB filing-cabinet definition for badges a user currently holds.
+
+**What it DOES**: Defines `userId`, `podId`, `type` (restricted to the six badge types), and
+`earnedAt` (defaults to now). It then adds two unusual "partial unique indexes" — database rules
+that block duplicate documents, but only for a subset of rows. The first blocks a user from
+earning the *same* non-Pod-Champion badge twice in the same pod. The second is stricter: it
+blocks a pod from ever having more than *one* Pod Champion badge at all, regardless of who holds
+it — which is exactly what makes the "only one crown per pod" rule enforceable at the database
+level, not just in application code.
+
+**WHY it exists**: Without this file, badges couldn't be persisted at all, and — more subtly —
+without the two partial unique indexes, a bug or a race condition (two people finishing an action
+at the same instant) could let a pod accidentally end up with two "Pod Champion" holders at once.
+
+**HOW it connects**: Created/deleted by `badgeEngine.ts`; read by `GET /api/badges` and displayed
+by `RankCard.tsx` and `BadgesReferenceCard.tsx` on the Leaderboard page.
+
+**Analogy**: A trophy case with a locked slot for the "team MVP" trophy — the case physically only
+has room for one MVP trophy at a time, so if a new MVP is crowned, the old trophy has to come out
+before the new one goes in. The other badge types are like wall medals — everyone who earns one
+gets to keep their own, and there's no limit on how many people can have the same medal.
+
+---
+
+#### `src/lib/pointsEngine.ts`
+
+**What it IS**: The central "points brain" of the app — the one place responsible for both
+calculating leaderboard rankings and recording new point-earning events.
+
+**What it DOES**: Two exported functions.
+- `getPodLeaderboard(podId, window)` — looks up every user in a pod, then for each one sums their
+  `PointEvent` points twice: once for all-time, and once restricted to the requested time window
+  (7 days, 30 days, or "all," which just reuses the all-time sum). It returns the list sorted by
+  the windowed total, highest first — this is the exact data the Leaderboard page displays.
+- `recordPointEvent(input)` — takes `{ userId, podId, action, relatedId }`, looks up the point
+  value for that action from `POINT_VALUES`, and then runs a chain: save a new `PointEvent` →
+  add that many points to the user's running `totalPoints` → call the Badge Engine to check if
+  any badge was just earned. Critically, this function does **not** return a promise the caller
+  waits for — it's designed to be called and immediately forgotten about, with any failure along
+  the way just logged to the console rather than breaking the user's original request.
+
+**WHY it exists**: Every single point-earning API route (feedback submission, upvotes, action
+conversion, completion, verification) needs the exact same three-step "save a receipt, update the
+running total, check for new badges" sequence. Centralizing it here means that logic only had to
+be written once, and it guarantees points/badges never accidentally get out of sync from one
+route to another.
+
+**HOW it connects**: Called by five different API routes (`feedback`, `upvote`, `actions`,
+`advance`, `verify`). It in turn calls `badgeEngine.ts`'s `evaluateBadges`. `getPodLeaderboard` is
+also called directly by `GET /api/points` and reused inside `badgeEngine.ts` itself to figure out
+who's currently #1 for the Pod Champion badge.
+
+**Analogy**: A cashier's register at checkout. Every time you buy something (submit feedback,
+finish a task), the register rings up the sale, prints a receipt (the `PointEvent`), updates the
+store's running daily total (`totalPoints`), and — in this app's case — also silently checks
+"did this purchase just qualify the customer for a loyalty reward?" (badges) without making you
+wait at the counter for that check to finish.
+
+---
+
+#### `src/lib/badgeEngine.ts`
+
+**What it IS**: The decision-maker that actually awards (or reassigns) badges, sitting one layer
+above the individual yes/no badge rules.
+
+**What it DOES**:
+- `awardIfQualified(userId, podId, type)` — a small helper that checks "does this user already
+  have this badge?" and, if not, tries to create it. If two requests race each other and both try
+  to create the same badge at the same instant, MongoDB's unique index (from `Badge.ts`) rejects
+  the second attempt with a specific error code (`11000`); this function catches exactly that
+  error and treats it as a harmless "someone else already got there first," rather than crashing.
+- `evaluatePodChampion(podId)` — the special-case logic described in Diagram 3 above: gets the
+  30-day leaderboard, checks who's #1, compares that to who currently holds the badge, and if
+  they differ, works out (including tie-breaking by whoever reached the top total earliest) who
+  should hold it now, deletes the old badge, and creates the new one.
+- `evaluateBadges(userId, podId)` — the function everything else calls. It loops through the five
+  ordinary badge checks (each imported from `badgeChecks.ts`), awarding any that newly qualify,
+  and then always runs the Pod Champion evaluation for the whole pod (not just this one user,
+  since Pod Champion depends on comparing everyone).
+
+**WHY it exists**: Awarding a badge isn't just "check a condition and save a row" — it needs
+duplicate protection, and the Pod Champion badge specifically needs a "transfer of ownership"
+process that none of the individual badge-check functions could sensibly own themselves. This
+file exists to hold that orchestration logic in one place, separate from the simple pass/fail
+rule-checking in `badgeChecks.ts`.
+
+**HOW it connects**: Called from `pointsEngine.ts`'s `recordPointEvent`, every time, after every
+point-earning action. It calls into `badgeChecks.ts` for the five simple checks and into
+`pointsEngine.ts`'s own `getPodLeaderboard` for the Pod Champion comparison.
+
+**Analogy**: An automatic "employee of the month" system at a company. Every time someone clocks a
+notable achievement, this is the manager who checks the rulebook, hands out any newly-earned
+certificates, and — for the one-and-only "top performer" plaque — takes it down off the current
+holder's wall and puts it on the new top performer's wall instead, with a fair tie-break rule for
+who gets it if two people are exactly even.
+
+---
+
+#### `src/lib/badgeChecks.ts`
+
+**What it IS**: A small library of five independent yes/no questions, one per non-Pod-Champion
+badge, each answering "does this specific user currently qualify for this specific badge?"
+
+**What it DOES**: Five exported functions, all following the same shape — take a `userId`, return
+`true` or `false`:
+- `checkFeedbackMachine` — counts this user's `submit_feedback` point events in the last 30 days;
+  qualifies at 10 or more.
+- `checkActionTaker` — same idea but counts `complete_action` events; qualifies at 3 or more.
+- `checkInnovator` — sums the upvote counts across all of this user's `"should-try"` feedback
+  items (no time limit); qualifies at 20 or more total upvotes.
+- `checkProblemSolver` — looks at every action item this user owns that's completed or verified,
+  skips any with no linked source feedback, and returns true the moment it finds one whose source
+  feedback was categorized `"slowed-us-down"`.
+- `checkConsensusBuilder` — checks whether this user has authored at least one feedback item that
+  has 10 or more upvotes.
+
+**WHY it exists**: Keeping these five rules as small, separate, pure functions (each one only
+reads data, never writes anything) makes each badge's earning condition easy to read, test, and
+change independently — nobody has to untangle awarding logic, duplicate-protection logic, and the
+actual business rule all from one giant function.
+
+**HOW it connects**: Called exclusively by `badgeEngine.ts`'s `evaluateBadges`, which loops
+through all five and asks each one whether the current user now qualifies.
+
+**Analogy**: Five separate merit-badge inspectors at a scouting organization, each responsible for
+verifying just one specific achievement (fire-building, first aid, camping, etc.). None of them
+hands out the actual badge — they just report back "yes, this scout has done enough" or "not yet."
+
+---
+
+#### `src/app/api/points/route.ts`
+
+**What it IS**: The HTTP "front door" the browser knocks on to get leaderboard numbers.
+
+**What it DOES**: A single `GET` handler. It requires a `pod` query parameter (400 error if
+missing) and a `window` query parameter that must be exactly `7d`, `30d`, or `all` (400 error
+otherwise — no silent default is allowed). If both are valid, it hands off to
+`pointsEngine.getPodLeaderboard` and returns the resulting ranked array as JSON.
+
+**WHY it exists**: The Points Engine has no idea what an HTTP request or a URL query string is —
+this file is the translation layer that turns a web request into a plain function call, and turns
+the function's plain JavaScript result back into an HTTP response the browser can use.
+
+**HOW it connects**: Called by the Leaderboard page and by the Dashboard's `useDashboardExtras`
+hook (for the Pod MVP card). Internally calls `pointsEngine.ts`.
+
+**Analogy**: A bank teller window. You (the browser) can't reach directly into the vault
+(`pointsEngine.ts`/MongoDB) — you have to ask the teller, who checks your request makes sense
+(did you provide an account and a time period?) before fetching the numbers for you.
+
+---
+
+#### `src/app/api/badges/route.ts`
+
+**What it IS**: The HTTP front door for reading which badges exist.
+
+**What it DOES**: A single `GET` handler requiring either a `userId` or a `podId` query parameter
+(400 error if neither is given). It queries the `Badge` collection by whichever was provided and
+returns the matching badge documents as JSON, converting MongoDB's internal `_id` object into a
+plain string first so the browser gets clean, predictable data.
+
+**WHY it exists**: Same translation-layer reasoning as the points route — the badge data lives in
+MongoDB, and this is the only sanctioned way for the browser to ask for it.
+
+**HOW it connects**: Called by the Leaderboard page (`podId` lookup, to show badge chips next to
+each ranked user).
+
+**Analogy**: The trophy case's visitor window — you can look up "show me every trophy Alice has
+won" or "show me every trophy this team has handed out," but you can't reach in and grab one
+yourself.
+
+---
+
+#### `src/app/api/feedback/route.ts` (modified)
+
+**What changed**: Added a `resolveAuthorPod` helper that looks up the submitting user's `pod`
+field, and — after a new feedback item is successfully saved — a call to
+`recordPointEvent({ action: 'submit_feedback', ... })` crediting the item's author.
+
+**WHY the change**: Submitting feedback is one of the six point-earning actions defined in
+`src/types/index.ts`; this is the wiring that actually makes that rule happen in practice, right
+at the moment a new feedback item is created.
+
+**HOW it connects**: Calls `pointsEngine.recordPointEvent`, which in turn triggers the whole
+points-and-badges chain described in Diagram 1. Note the call is wrapped in a local `try/catch` —
+if recording the point event throws synchronously (which can happen with certain test doubles,
+even though the real implementation never throws synchronously), the feedback submission itself
+still succeeds and returns 201 to the user.
+
+**Analogy**: A cashier who, right after ringing up your purchase, also swipes your loyalty card
+without making you wait — if the loyalty scanner glitches, you still walk out with your groceries.
+
+---
+
+#### `src/app/api/feedback/[id]/upvote/route.ts` (modified)
+
+**What changed**: Added a `resolveUserPod` helper and `recordPointEvent` calls in *both* branches
+of the upvote toggle — `receive_upvote` when someone's feedback gets upvoted, and `remove_upvote`
+(a signed *negative* point value) when an existing upvote is taken back. Both credit/debit the
+feedback item's original author (`item.authorId`), not the person doing the upvoting.
+
+**WHY the change**: Upvotes are worth points to whoever wrote the feedback, and un-upvoting (a
+user clicking the same upvote button again to retract it) needs to symmetrically claw those
+points back — otherwise a user could upvote and un-upvote repeatedly to farm free points.
+
+**HOW it connects**: Same `recordPointEvent` → Points Engine → Badge Engine chain as every other
+point-earning route.
+
+**Analogy**: A tip jar with a "take my tip back" button — if someone taps it, the same amount that
+was added gets subtracted again, so the total stays honest either way.
+
+---
+
+#### `src/app/api/actions/route.ts` (modified)
+
+**What changed**: Added a `resolveUserPod` helper. When a new action item is created *from* a
+piece of feedback (i.e. `sourceFeedbackId` is present in the request), the route looks up that
+source feedback item and fires `recordPointEvent({ action: 'convert_action', ... })` crediting
+the feedback's true author — even if that feedback was submitted anonymously — rather than the
+person who happened to click "Convert to Action." Standalone action items (created without a
+linked feedback item) get no point event at all.
+
+**WHY the change**: Converting a piece of feedback into a real action item is meant to reward
+whoever originally raised the idea, not whoever happened to be the one who did the paperwork of
+converting it — this specifically protects that credit even when the original author chose to
+stay anonymous.
+
+**HOW it connects**: Calls `recordPointEvent`, same as the other routes.
+
+**Analogy**: A company suggestion box where, if your anonymous suggestion gets turned into an
+actual project, you still get credited for the original idea in the internal system — even though
+nobody outside the system knows it was you.
+
+---
+
+#### `src/app/api/actions/[id]/advance/route.ts` (modified)
+
+**What changed**: Added `resolveUserPod` and a `recordPointEvent({ action: 'complete_action' })`
+call, but only when the status transition is specifically `in-progress → completed` — not for the
+earlier `open → in-progress` transition. The action item's owner (`item.ownerId`) is credited.
+
+**WHY the change**: The point value table only rewards *completing* an action item (100 points),
+not merely starting one, so the code has to distinguish which of the two possible transitions
+just happened before deciding whether to award points.
+
+**HOW it connects**: Calls `recordPointEvent`. Feeds into `pointsEngine`/`badgeEngine`, and is
+also one of the two signals `checkActionTaker` in `badgeChecks.ts` counts toward the "Action
+Taker" badge.
+
+**Analogy**: A "task board" where moving a sticky note from "In Progress" to "Done" triggers a
+reward, but moving it from "To Do" to "In Progress" doesn't — only actually finishing counts.
+
+---
+
+#### `src/app/api/actions/[id]/verify/route.ts` (modified — breaking change)
+
+**What changed**: The request body now *requires* both `impactNote` and a new `userId` field (a
+400 error is returned if either is missing/empty — this is a breaking change from the previous
+version, which only required `impactNote`). After the action item's status is updated to
+`verified`, the route fires `recordPointEvent({ action: 'verify_action', ... })` crediting
+`body.userId` — the person doing the verifying — rather than the action item's original owner.
+
+**WHY the change**: Verifying that an action item actually made a difference is a distinct,
+valuable act (worth 150 points, the highest single reward in the system) that may be performed by
+someone other than whoever completed the task, so the system needs to know *who* is doing the
+verifying, not just assume it's the owner.
+
+**HOW it connects**: This breaking change rippled outward to `src/services/actionService.ts`
+(whose `verifyImpact` function gained a required third parameter) and to
+`src/app/action-items/page.tsx` (the only caller, updated to pass the current logged-in user's
+ID). It also broke two pre-existing tests (`actionService.test.ts`, `actionItems.test.tsx`),
+which were subsequently updated — documented in `IMPLEMENTATION_NOTES.md` as a deliberate,
+human-approved fix rather than a silent workaround.
+
+**Analogy**: A workplace safety inspection — the person who *fixed* a hazard and the person who
+later *signs off confirming the fix actually worked* are often different people, and the sign-off
+credit belongs to the inspector, not automatically to whoever did the original repair.
+
+---
+
+#### `src/app/api/users/route.ts` (modified twice this sprint)
+
+**What changed (Session 2+3)**: The `GET` handler now honors a `pod` query parameter that existed
+in the URL-reading code but was previously ignored — `pod` now takes priority over `username` when
+filtering users, letting other Sprint 7 code fetch "everyone in this pod" (needed by
+`getPodLeaderboard` and the Dashboard's user-name lookup).
+
+**What changed (Whole-Sprint Completion Gate fix)**: The `GET` function's parameter changed from
+optional (`req?: NextRequest`) to required (`req: NextRequest`). This sounds tiny but was the
+actual reason `npm run build` was failing for the entire app — Next.js 14 refuses to compile a
+route whose exported `GET` function could theoretically be called with `undefined`. The optional
+`?` had been sitting there since Sprint 5, unnoticed, because nobody had run a full production
+build as a hard gate before. Fixing it required also updating the one pre-existing test that
+called `GET()` with no arguments at all (see `userApi.test.ts` below).
+
+**WHY it exists**: This route is the single place the whole app asks "who are the users, optionally
+filtered by pod or username?" Both the pod-filtering bug and the optional-parameter bug were
+real, pre-existing defects that Sprint 7 either needed to fix (pod filtering, to make the
+leaderboard viable) or was blocked by (the build error, which had nothing to do with gamification
+but would have stopped the whole app from shipping).
+
+**HOW it connects**: Called by the Leaderboard page indirectly through `getPodLeaderboard`
+(`User.find({ pod: podId })`), by the Dashboard page directly (`fetch('/api/users?pod=...')`), and
+by every point-crediting API route's `resolveUserPod`/`resolveAuthorPod` helper (`User.findById`).
+
+**Analogy**: A company directory lookup desk that used to only let you search by exact employee
+name, silently ignoring if you tried to search by department — Sprint 7 fixed the desk clerk to
+actually honor "show me everyone in this department" requests, and also fixed a technical filing
+rule that was quietly stopping the whole directory system from being reprinted (rebuilt) at all.
+
+---
+
+#### `src/services/actionService.ts` (modified)
+
+**What changed**: `verifyImpact(itemId, impactNote, userId)` gained a required third parameter,
+which gets included in the request body sent to `PATCH /api/actions/:id/verify`.
+
+**WHY it exists**: This file is the "client-side helper library" that UI pages use instead of
+writing raw `fetch()` calls everywhere — when the verify API route's contract changed to require
+a `userId`, this is the one place that had to change to keep every caller in sync.
+
+**HOW it connects**: Its only caller is `src/app/action-items/page.tsx`, which now passes
+`currentUser?._id ?? ''` as that third argument.
+
+**Analogy**: A translator who phrases your requests for the API — when the API started requiring
+you to also state who you are before verifying something worked, the translator's script had to
+be updated to always include that detail.
+
+---
+
+#### `src/app/action-items/page.tsx` (modified)
+
+**What changed**: The one caller of `verifyImpact` now passes `currentUser?._id ?? ''` as the
+required third argument, matching the updated `actionService.ts` signature.
+
+**WHY it exists**: This is the actual screen a team member sees to track, advance, and verify
+action items — someone has to be logged in and known to the page (`currentUser`) for the "who
+verified this" credit to be assigned correctly.
+
+**HOW it connects**: Calls `actionService.verifyImpact`, which calls the verify API route, which
+calls `recordPointEvent`.
+
+**Analogy**: A sign-in sheet at a community event — when you check a box confirming something got
+done, the sheet already knows your name from when you signed in, so it can attach your name to
+your confirmation automatically.
+
+---
+
+#### `src/components/leaderboard/RankCard.tsx`
+
+**What it IS**: The visual "row" component for one ranked person on the Leaderboard page.
+
+**What it DOES**: Renders one list item per user. The top 3 ranks get special gold/silver/bronze
+gradient backgrounds and a Trophy or Medal icon instead of a plain number; ranks 4 and below just
+show a numeric rank. It shows a circular avatar with the user's initials, the user's name, a
+crown emoji if they hold the "living" Pod Champion badge (shown separately from the rest), small
+pill-shaped chips for any of the other five "permanent" badges they've earned, and their point
+totals (window points always, all-time points only for the top 3). If this row belongs to the
+person currently viewing the page, it gets a highlighted ring around it.
+
+**WHY it exists**: The ranked list itself lives in `leaderboard/page.tsx`, but the detailed
+per-row visual logic (rank styling, badge chip layout, avatar initials) is substantial enough that
+pulling it into its own file keeps the page file smaller and makes this one row design reusable
+and testable on its own.
+
+**HOW it connects**: Rendered once per user by `src/app/leaderboard/page.tsx`, fed one row of data
+from `PointsRow` (the shape returned by `pointsEngine.getPodLeaderboard`) plus the full list of
+that pod's badges.
+
+**Analogy**: A single athlete's row on a sports scoreboard — gold/silver/bronze get special
+treatment at the top, everyone else just gets their plain rank number, and any medals they've won
+show up as small icons right next to their name.
+
+---
+
+#### `src/components/leaderboard/PointsGuideCard.tsx`
+
+**What it IS**: A static reference card on the Leaderboard page explaining how many points each
+action is worth.
+
+**What it DOES**: Reads the `POINT_VALUES` table straight from `src/types/index.ts` and renders
+one row per action with a human-readable label (e.g. "Submit feedback") and its point value,
+shown with a real minus sign for the one negative value (`remove_upvote`) and a plus sign for
+everything else.
+
+**WHY it exists**: Without this card, users would have no way to understand why their point total
+changes the way it does — it's the "rules explained" reference sitting right next to the results.
+
+**HOW it connects**: Reads directly from the shared `POINT_VALUES` constant, so if that constant
+ever changes, this card automatically stays accurate with zero additional code changes. Rendered
+by `src/app/leaderboard/page.tsx`.
+
+**Analogy**: The scoring key printed on the side of a game board — "landing here is worth this
+many points" — so players don't have to guess at the rules.
+
+---
+
+#### `src/components/leaderboard/BadgesReferenceCard.tsx`
+
+**What it IS**: A static reference card listing all six possible badges and what each one means.
+
+**What it DOES**: Reads `BADGE_DEFINITIONS` from `src/types/index.ts` and renders one row per
+badge type with its icon (looked up from a small icon-name-to-icon-component map), name, and
+description — regardless of whether the person viewing the page has earned that badge or not.
+
+**WHY it exists**: New users would otherwise have no way to discover what badges even exist or
+what they're for; this card documents the full badge system in one glance.
+
+**HOW it connects**: Reads directly from `BADGE_DEFINITIONS`. Rendered alongside
+`PointsGuideCard.tsx` on `src/app/leaderboard/page.tsx`.
+
+**Analogy**: A merit badge handbook page showing every badge scouts can earn, with a picture and
+description of each — whether or not you personally have earned it yet.
+
+---
+
+#### `src/app/leaderboard/page.tsx`
+
+**What it IS**: The full Leaderboard screen — the page people navigate to when they click
+"Leaderboard" in the sidebar.
+
+**What it DOES**: Confirms someone is logged in (redirects to the home page if not). Keeps track
+of which time window is selected (`7d`, `30d`, or `all`) via three tab buttons, refetching
+`GET /api/points` every time the window changes. Separately fetches `GET /api/badges` once when
+the page loads (badges don't depend on the time window). While loading, shows a loading message;
+if there's genuinely no activity yet (everyone's all-time points are zero), shows an empty-state
+message instead of an empty list. Otherwise renders the ranked list using `RankCard` for each row,
+plus the two reference cards (`PointsGuideCard`, `BadgesReferenceCard`) in a sidebar-style column.
+
+**WHY it exists**: This is the actual destination page — without it, none of the Points Engine,
+Badge Engine, or reference cards would have anywhere to be displayed to a real user.
+
+**HOW it connects**: Calls `GET /api/points` and `GET /api/badges`; renders `RankCard`,
+`PointsGuideCard`, and `BadgesReferenceCard`; wraps everything in the shared `Shell` layout
+(sidebar navigation) used by every other page in the app.
+
+**Analogy**: The scoreboard wall at a gym — it pulls together the live standings, the rules
+reference, and the trophy case all onto one wall for members to check whenever they walk in.
+
+---
+
+#### `src/lib/utils/categoryDelta.ts`
+
+**What it IS**: A small set of pure calculation helpers (no database calls, no network calls)
+used by the Dashboard's Category Breakdown section to show "up or down from last period" arrows.
+
+**What it DOES**: `getPriorPeriodBounds(window)` computes the date range for the *previous*
+equivalent period — e.g. if you're looking at "this week," the prior period is the week before
+that. `formatCategoryDelta(current, prior)` turns a pair of counts into a display string like
+`"+3"`, `"-2"`, or `"+5 ↑"` (a special case when there was nothing in the prior period but there
+is now). `countInPriorPeriod` filters a list of feedback items down to just the ones that fall
+inside a given prior-period date range and category.
+
+**WHY it exists**: These calculations are used only for display formatting and date-range math —
+keeping them as small, dependency-free functions makes them trivially easy to test in isolation,
+and they were architected specifically to avoid touching `windowFilter.ts`, a protected file this
+sprint was told not to modify.
+
+**HOW it connects**: Used by `CategoryBreakdownSection.tsx` and by the `useDashboardExtras.ts`
+hook (which decides whether a prior-period fetch is even needed based on
+`getPriorPeriodBounds`'s result).
+
+**Analogy**: The little up/down arrow and percentage you see next to a stock price — this file is
+the math behind figuring out "compared to last time, did this number go up or down, and by how
+much?"
+
+---
+
+#### `src/components/dashboard/PodMvpSection.tsx`
+
+**What it IS**: The Dashboard card that highlights whoever is currently #1 on the leaderboard for
+the pod.
+
+**What it DOES**: While its data is loading, shows a skeleton placeholder. Once loaded, if no one
+has earned any points yet in the selected period, shows an empty-state message. Otherwise shows
+the #1-ranked user's avatar (initials), name, and their point total for the current window, with
+a trophy icon in the header.
+
+**WHY it exists**: This gives Dashboard visitors an at-a-glance "who's leading right now" view
+without having to click into the full Leaderboard page.
+
+**HOW it connects**: Receives its data (`pointsData`, `isLoading`) from the `useDashboardExtras`
+hook, which itself calls `GET /api/points`. Rendered by `src/app/dashboard/page.tsx`.
+
+**Analogy**: A small "employee of the week" photo posted at the front desk — a quick highlight,
+not the full leaderboard.
+
+---
+
+#### `src/components/dashboard/CategoryBreakdownSection.tsx`
+
+**What it IS**: The Dashboard card showing how many feedback items fall into each of the three
+categories (slowed us down / should try / went well), with a trend indicator.
+
+**What it DOES**: For each of the three categories, counts how many current-period feedback items
+match it, and — unless the window is "all-time" — also computes a delta against the equivalent
+prior period using the `categoryDelta.ts` helpers, displaying that delta nested inside the same
+element as the count (a deliberate DOM structure choice so both are findable together in tests).
+
+**WHY it exists**: Raw category counts alone don't tell a team whether things are trending better
+or worse — this card adds the "compared to before" context that makes the numbers actionable.
+
+**HOW it connects**: Receives `current` (this period's feedback items) directly from
+`dashboard/page.tsx`'s existing feedback fetch, and `prior` (last period's feedback items) from
+the `useDashboardExtras` hook's separate fetch.
+
+**Analogy**: A weather app showing not just "it's 75°F today" but "5° warmer than this time last
+week."
+
+---
+
+#### `src/components/dashboard/TopVotedFeedbackSection.tsx`
+
+**What it IS**: The Dashboard card listing the 5 most-upvoted feedback items in the current
+window.
+
+**What it DOES**: If there are no feedback items yet, shows an empty message. Otherwise renders
+up to 5 items, each with a colored left border matching its category, the feedback text, and its
+upvote count with a thumbs-up icon.
+
+**WHY it exists**: Surfaces the feedback the team has collectively agreed matters most, right on
+the Dashboard, without requiring a trip to the full Feedback Board.
+
+**HOW it connects**: Receives its `items` prop pre-sorted-and-sliced (top 5 by upvotes) from
+`src/app/dashboard/page.tsx`.
+
+**Analogy**: A "most liked posts this week" widget on a social app's home screen.
+
+---
+
+#### `src/components/dashboard/VerifiedImprovementsSection.tsx`
+
+**What it IS**: The Dashboard card celebrating action items that were completed *and* confirmed to
+have actually made a difference.
+
+**What it DOES**: If there are none yet, shows an empty message. Otherwise renders each verified
+action item's title and its impact note (the free-text description of what actually improved)
+inside a light green "success" styled block.
+
+**WHY it exists**: Completing an action item is one thing; confirming it genuinely helped is the
+real payoff the whole retro process is trying to produce — this card puts that proof front and
+center as a highlight, not buried in the Action Items list.
+
+**HOW it connects**: Receives `items` (pre-filtered to `status === 'verified'`) from
+`src/app/dashboard/page.tsx`.
+
+**Analogy**: A "customer success stories" wall — not just "we shipped this," but "and here's the
+proof it actually worked."
+
+---
+
+#### `src/components/dashboard/useDashboardExtras.ts`
+
+**What it IS**: A custom React hook (a reusable bundle of stateful logic) that fetches the two new
+data sources the Dashboard needs for Sessions 5's new cards: Pod MVP points and prior-period
+feedback for category deltas.
+
+**What it DOES**: Two independent `useEffect` blocks. The first re-fetches `GET /api/points`
+whenever the selected time window changes, feeding the Pod MVP card. The second checks whether a
+prior period even makes sense for the current window (it doesn't for "all-time"), and if so,
+fetches the full unwindowed feedback list once so `CategoryBreakdownSection` can compute deltas
+client-side. Both fetches use an `AbortController` so an in-flight request gets cancelled if the
+window changes again before it finishes, preventing stale data from overwriting fresh data.
+
+**WHY it exists**: This logic was pulled out of `dashboard/page.tsx` purely to keep that file
+under the project's 200-line-per-file limit — extracting it into its own hook was a mechanical
+reorganization, not a behavior change.
+
+**HOW it connects**: Called once from `src/app/dashboard/page.tsx`; its return values feed
+`PodMvpSection` and `CategoryBreakdownSection`.
+
+**Analogy**: A dedicated research assistant who separately keeps track of "who's currently
+winning" and "how did things compare to last time," so the main Dashboard "presenter" doesn't have
+to personally manage all that background legwork itself.
+
+---
+
+#### `src/components/dashboard/MetricsGrid.tsx`, `WindowTabs.tsx`, `ActivityFeedSection.tsx`
+
+**What they ARE**: Three components that are verbatim relocations of pre-existing Dashboard JSX
+(the top metrics grid, the 7-day/30-day/all-time tab buttons, and the activity feed list) — moved
+into their own files with zero logic, class, or test-id changes.
+
+**What they DO**: `MetricsGrid` renders the grid of stat cards (total feedback by category, total
+actions by status, completion/verification rates). `WindowTabs` renders the three time-window
+toggle buttons. `ActivityFeedSection` renders the scrolling list of recent feedback/action-item
+events, or an empty message if there's nothing yet.
+
+**WHY they exist**: Purely to satisfy the project's "no file over 200 lines" rule — once four new
+gamification sections were added to the Dashboard page, the original single-file page would have
+exceeded that limit, so this pre-existing, untouched code was split out into separate files
+without changing what it does.
+
+**HOW they connect**: All three are imported and rendered by `src/app/dashboard/page.tsx`, in the
+same visual positions they always occupied.
+
+**Analogy**: Moving three existing framed pictures off a very full wall into their own smaller
+frames elsewhere in the room — nothing about the pictures themselves changed, there just wasn't
+room to keep everything on one wall anymore.
+
+---
+
+#### `src/app/dashboard/page.tsx` (modified)
+
+**What changed**: Four new sections were wired in (`PodMvpSection`, `CategoryBreakdownSection`,
+`TopVotedFeedbackSection`, `VerifiedImprovementsSection`), fed by the new `useDashboardExtras`
+hook and by sorting/filtering the page's existing feedback and action-item state. The
+pre-existing metrics grid, window tabs, and activity feed JSX were extracted into their own
+component files (see above) to keep this file under 200 lines. One extra fix was made to the
+page's original data-loading `useEffect`: `router` was removed from its dependency array, because
+the test suite's mock `useRouter()` returns a brand-new object on every render, which was causing
+an infinite fetch loop under test (and, per DEV's investigation, was already an intermittent bug
+before Sprint 7 even started — not something this sprint introduced).
+
+**WHY it exists**: This is the main landing screen a team member sees after logging in — the
+whole point of Epic 7.4 was to surface gamification data (who's leading, how feedback trends
+compare period-over-period, top feedback, and proof of real impact) right where people already
+look every day, without making them dig for it.
+
+**HOW it connects**: Fetches feedback, action items, and users directly; calls
+`useDashboardExtras` for the two new gamification-specific data sources; renders all seven visual
+sections (three pre-existing, four new).
+
+**Analogy**: A home screen dashboard in a fitness app that already showed your steps and calories,
+now also showing your current rank among friends, your trend versus last week, your most-liked
+activity, and a "goals you actually hit" section — all pulled onto the same home screen instead of
+requiring separate taps to find.
+
+---
+
+#### `src/__tests__/userApi.test.ts` (updated as part of the build-gate fix, not a DEV session)
+
+**What changed and why (factual, not evaluative)**: `UA-1`'s call to the `GET` handler changed
+from `GET()` (zero arguments) to `GET(new NextRequest('http://localhost/api/users'))`, and the
+file gained an `import { NextRequest } from 'next/server'`. This was required because
+`src/app/api/users/route.ts`'s `GET` function signature changed from optional
+(`req?: NextRequest`) to required (`req: NextRequest`) as the fix for the `npm run build` failure
+described above — Next.js's route-type checker rejects any exported route handler whose parameter
+type could be `undefined`, and a test calling the real function with zero arguments would no
+longer match that stricter, required signature.
+
+**HOW it connects**: This test directly exercises `src/app/api/users/route.ts`'s `GET` and `POST`
+handlers using mocked versions of `connectDB` and the `User` model, so it is the first thing that
+would have caught this signature mismatch if run in CI before the fix was made.
+
+**Analogy**: If a form at an office used to accept walk-ins without an appointment slip, and the
+office changed its policy to require everyone to bring a slip, the office's own internal
+"how we test the front desk" checklist had to be updated too, so it kept accurately representing
+how the front desk was actually supposed to be used going forward.
+
+---
+
 # Code Explainer — Sprint 1: Foundation
 
 **Mode**: [PROFESSOR]  

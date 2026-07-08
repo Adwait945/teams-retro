@@ -70,12 +70,12 @@ export async function regressStatus(itemId: string): Promise<ActionItem> {
   return res.json()
 }
 
-export async function verifyImpact(itemId: string, impactNote: string): Promise<ActionItem> {
+export async function verifyImpact(itemId: string, impactNote: string, userId: string): Promise<ActionItem> {
   if (!impactNote.trim()) throw new Error('impactNote is required')
   const res = await fetch(`/api/actions/${itemId}/verify`, {
     method: 'PATCH',
     headers: { 'Content-Type': 'application/json' },
-    body: JSON.stringify({ impactNote }),
+    body: JSON.stringify({ impactNote, userId }),
   })
   if (!res.ok) throw new Error('Failed to verify impact')
   return res.json()

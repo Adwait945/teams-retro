@@ -260,7 +260,7 @@ test('AI-12: valid impact note → submit → verifyImpact called → modal clos
   fireEvent.click(screen.getByTestId('verify-impact-submit-btn'))
 
   await waitFor(() => {
-    expect(verifyImpact).toHaveBeenCalledWith('ai-verify', 'It worked.')
+    expect(verifyImpact).toHaveBeenCalledWith('ai-verify', 'It worked.', 'user-1')
     expect(screen.queryByTestId('verify-impact-modal')).not.toBeInTheDocument()
   })
   expect((getActions as jest.Mock).mock.calls.length).toBeGreaterThanOrEqual(2)
