@@ -1,0 +1,25 @@
+{
+  "hooks": {
+    "PreToolUse": [
+      {
+        "matcher": "Edit|Write|MultiEdit|NotebookEdit",
+        "hooks": [
+          {
+            "type": "command",
+            "command": "node -e \"let d='';process.stdin.on('data',c=>d+=c);process.stdin.on('end',()=>{try{const i=JSON.parse(d);const p=(i.tool_input&&(i.tool_input.file_path||i.tool_input.path))||'';const base=p.split('/').pop()||'';if(/^\\.env(\\..+)?$/.test(base)&&base!=='.env.example'){console.error('Blocked: agents may only edit .env.example, not '+base+'. Add new variable names there (no values/secrets).');process.exit(2);}process.exit(0);}catch(e){process.exit(0);}});\""
+          }
+        ]
+      }
+    ],
+    "SubagentStop": [
+      {
+        "hooks": [
+          {
+            "type": "command",
+            "command": "node -e \"let d='';process.stdin.on('data',c=>d+=c);process.stdin.on('end',()=>{const fs=require('fs');let name='unknown';try{const i=JSON.parse(d);name=i.agent_name||i.subagent_type||i.name||'unknown';}catch(e){}fs.appendFileSync('.claude/subagent.log',new Date().toISOString()+' subagent completed: '+name+'\\n');});\""
+          }
+        ]
+      }
+    ]
+  }
+}
