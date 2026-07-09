@@ -914,3 +914,24 @@ None — this was a scoped, single-file bug fix against a pre-existing regressio
 `docs/IMPLEMENTATION_PLAN.md` task. No plan checkbox was added/changed for this session.
 
 ---
+
+## Sprint 7 — Post-Ship Fast-Follow — Leaderboard nav link
+
+**Date**: 2026-07-08
+**Trigger**: user manually exercising the shipped build hit two things: (1) navigated directly to
+`/actions` (not a real route — the correct path is `/action-items`, user error, no fix needed), and
+(2) correctly noticed there was no way to reach `/leaderboard` from the app's own navigation. This
+was flagged during ARCHITECT's Sprint 7 design pass as "no AC requires a nav link, likely fast-follow"
+and intentionally left out of Sprint 7's Definition of Done — the user's report confirms it's worth
+doing now rather than deferring further.
+
+**Fix**: `src/components/layout/Shell.tsx` — added a `Trophy`-icon `"Leaderboard"` entry to
+`BASE_NAV`, pointing at `/leaderboard`, positioned after "Action Items" and before the
+admin-only "Pod Settings" entry (visible to all users, matching every other non-admin nav item).
+One file, 2 lines changed (1 import, 1 array entry).
+
+**Verification**: `npx tsc --noEmit` → 0 errors. Not run through a fresh `npm test`/`npm run build`
+pass since no test asserts the nav item list and the change has no logic — Fast Refresh confirmed
+live in the user's already-running `npm run dev` session.
+
+---

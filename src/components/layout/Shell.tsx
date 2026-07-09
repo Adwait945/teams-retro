@@ -3,7 +3,7 @@
 import { useState, useEffect } from "react"
 import { usePathname, useRouter } from "next/navigation"
 import Link from "next/link"
-import { Hexagon, Settings, LayoutDashboard, MessageSquare, CheckSquare, LogOut } from "lucide-react"
+import { Hexagon, Settings, LayoutDashboard, MessageSquare, CheckSquare, Trophy, LogOut } from "lucide-react"
 import { cn } from "@/lib/utils"
 import type { User } from "@/types"
 
@@ -15,6 +15,7 @@ const BASE_NAV = [
   { href: "/dashboard",     label: "Dashboard",       icon: LayoutDashboard },
   { href: "/feedback",      label: "Feedback Board",  icon: MessageSquare },
   { href: "/action-items",  label: "Action Items",    icon: CheckSquare },
+  { href: "/leaderboard",   label: "Leaderboard",     icon: Trophy },
 ]
 const POD_SETTINGS_NAV = { href: "/pod-settings", label: "Pod Settings", icon: Settings }
 
