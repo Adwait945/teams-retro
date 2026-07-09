@@ -919,11 +919,12 @@ None — this was a scoped, single-file bug fix against a pre-existing regressio
 
 **Date**: 2026-07-08
 **Trigger**: user manually exercising the shipped build hit two things: (1) navigated directly to
-`/actions` (not a real route — the correct path is `/action-items`, user error, no fix needed), and
-(2) correctly noticed there was no way to reach `/leaderboard` from the app's own navigation. This
-was flagged during ARCHITECT's Sprint 7 design pass as "no AC requires a nav link, likely fast-follow"
-and intentionally left out of Sprint 7's Definition of Done — the user's report confirms it's worth
-doing now rather than deferring further.
+`/actions` and got a 404, initially assumed to be user error (typing the wrong URL) — **this was
+wrong, see the follow-up entry below, it was a real bug**; and (2) correctly noticed there was no way
+to reach `/leaderboard` from the app's own navigation. Item 2 was flagged during ARCHITECT's Sprint 7
+design pass as "no AC requires a nav link, likely fast-follow" and intentionally left out of Sprint
+7's Definition of Done — the user's report confirms it's worth doing now rather than deferring
+further.
 
 **Fix**: `src/components/layout/Shell.tsx` — added a `Trophy`-icon `"Leaderboard"` entry to
 `BASE_NAV`, pointing at `/leaderboard`, positioned after "Action Items" and before the
@@ -933,5 +934,45 @@ One file, 2 lines changed (1 import, 1 array entry).
 **Verification**: `npx tsc --noEmit` → 0 errors. Not run through a fresh `npm test`/`npm run build`
 pass since no test asserts the nav item list and the change has no logic — Fast Refresh confirmed
 live in the user's already-running `npm run dev` session.
+
+---
+
+## Sprint 7 — Post-Ship Fast-Follow — `/action-items` → `/actions` redirect bug (correction)
+
+**Date**: 2026-07-08
+**Trigger**: user reported that clicking "Action Items" in the sidebar itself (not a URL typo) still
+landed on the `/actions` 404 page, even after the Leaderboard nav fix above. Investigated by
+independently reproducing the click in an isolated preview session (port 3001, separate from the
+user's own running `npm run dev` on port 3000) — confirmed the click on
+`a[href="/action-items"]` genuinely navigated to `/actions` server-side, not a browser cache
+artifact as first suspected.
+
+**Root cause**: `next.config.js` had a `redirects()` rule:
+```js
+{ source: '/action-items', destination: '/actions', permanent: true }
+```
+This is backwards — `/actions` has never been a real page route (only `/api/actions` exists as an
+API route prefix); `/action-items` is the actual page. `git log` confirms this predates Sprint 7
+entirely (introduced in commit `59200ed`, 2026-04-16, titled "fix: action-items redirect in
+next.config...") — unrelated to any Sprint 7 work, a latent pre-existing bug that Sprint 7 didn't
+introduce or touch.
+
+**Fix**: removed the `redirects()` block from `next.config.js` entirely, restoring it to an empty
+`nextConfig = {}` (its state prior to the `59200ed` commit).
+
+**Verification**: `next.config.js` changes require a full dev-server restart (not hot-reloadable) —
+restarted the isolated verification server and confirmed via `fetch('/action-items', {cache:
+'no-store'})` that the server now returns `200` with `redirected: false`, no redirect at all. A
+same-browser-session click still showed the old redirect immediately after the fix — this is
+expected: the original rule used `permanent: true` (HTTP 308), which browsers cache extremely
+aggressively (often surviving a normal hard refresh); this is a client-cache artifact of the
+already-fixed server behavior, not a remaining server bug. `npx tsc --noEmit` → 0 errors. Full
+`npm test` → 150/158, 22/24 suites, identical to the established pre-existing-failure baseline
+(`registration.test.tsx`, `errorHandling.test.tsx`), no new regressions.
+
+**User-facing note**: anyone whose browser previously hit the old `/action-items` link before this
+fix may need to hard-clear cache (DevTools → Network tab → "Disable cache" + reload, or clear
+cached images/files for this site) rather than a normal refresh, since 308 redirects are cached more
+persistently than a typical page load.
 
 ---
