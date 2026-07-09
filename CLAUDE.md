@@ -42,10 +42,10 @@ There is no dedicated `test:watch` or `test:coverage` script; use
 - `src/components/` — shared UI components (`src/components/layout/` for
   shell/layout components)
 - `src/types/index.ts` — the single source of truth for domain types
-  (`User`, `Badge`, `FeedbackItem`, `ActionItem`, `PointEvent`,
-  `PointAction`, plus `POINT_VALUES`, `CATEGORY_CONFIG`, `BADGES` constants).
-  Never rename or invent fields here from a subagent role — extend it
-  deliberately and only in DEV.
+  (`User`, `FeedbackItem`, `ActionItem`, `PointEvent`, `PointAction`,
+  `BadgeType`, `Badge`, plus `POINT_VALUES`, `CATEGORY_CONFIG`,
+  `BADGE_DEFINITIONS` constants). Never rename or invent fields here from a
+  subagent role — extend it deliberately and only in DEV.
 - `src/services/`, `src/store/`, `src/data/` — service/state/fixture layers
 - `src/__tests__/` — Jest/RTL tests, mirrors `src/` structure
 
@@ -94,5 +94,20 @@ progress with `/sprint-status`.
 ## Environment variables
 Never edit `.env` directly — only `.env.example` (names only, no secrets).
 A pre-tool-use hook in `.claude/settings.json` blocks direct writes to any
-`.env*` file other than `.env.example`. Set `MONGODB_URI` locally in
-`.env.local` (already gitignored).
+`.env*` file other than `.env.example` via the Edit/Write/MultiEdit/
+NotebookEdit tools — if `.env.local` genuinely needs writing (e.g. to set
+`MONGODB_URI` locally), use `Bash` with a heredoc instead; the hook only
+matches the edit-family tools, not Bash.
+
+## Session Log
+`docs/SESSION_LOG.md` holds judgment calls, non-obvious decisions, and open
+threads from prior sessions that aren't fully captured in ADRs,
+`docs/IMPLEMENTATION_NOTES.md`, or `docs/TECH_DEBT.md` — read it at the start
+of a session if it exists. When the user says "update SESSION_LOG before we
+clear" (or similar, e.g. before ending a session or running `/clear`),
+append a new dated entry summarizing this session's judgment calls: things
+decided under ambiguity, bugs found that weren't obvious from the code,
+precedents worth repeating, and anything left open. Keep entries terse and
+example-grounded — this file is a memory aid for picking up correctly next
+time, not a full session transcript (that's what git history and the other
+`docs/` files are for).
